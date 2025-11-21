@@ -1,0 +1,42 @@
+from setuptools import find_packages, setup
+
+INSTALL_REQUIRES = [
+    "ruff",
+    "pre-commit",
+    "ecg_plot @ git+https://github.com/willxxy/ecg-plot",
+    "matplotlib==3.9.2",
+    "numpy==1.26.4",
+    "pandas==2.2.3",
+    "PyWavelets==1.7.0",
+    "PyYAML==6.0.2",
+    "regex==2024.9.11",
+    "requests==2.32.4",
+    "wfdb==4.1.2",
+    "seaborn==0.13.2",
+    "imageio==2.27.0",
+    "imgaug==0.4.0",
+    "imutils==0.5.4",
+    "opencv_python==4.6.0.66",
+    "pillow==10.3.0",
+    "scikit-image==0.21.0",
+    "html5lib==1.1",
+    "qrcode==7.4.2",
+    "gradio==5.31.0",
+    "termcolor==3.0.1",
+    "pytest",
+    "streamlit==1.51.0",
+]
+
+setup(
+    name="ecg_annot",
+    version="0.0.0",
+    packages=find_packages(),
+    url="https://github.com/willxxy/ECG-Annotation",
+    license="MIT",
+    author="William Jongwon Han",
+    author_email="wjhan@andrew.cmu.edu",
+    description="Open source code of ECG-Annotation",
+    python_requires=">=3.10",
+    install_requires=INSTALL_REQUIRES,
+    include_package_data=True,
+)
