@@ -88,6 +88,6 @@ with st.expander("View collected responses (local DB)"):
         import pandas as pd
 
         df = pd.DataFrame(rows, columns=["created_at", "filename", "answer"])
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width=True)
     else:
         st.caption("No responses yet.")
