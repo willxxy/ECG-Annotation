@@ -176,10 +176,12 @@ def render_guest_page():
         col_back, col_submit = st.columns(2)
         with col_back:
             if st.button("Back", use_container_width=True):
-                for rev_key in reversed(order):
-                    if rev_key in st.session_state["answers"]:
-                        st.session_state["current_question_index"] = order.index(rev_key)
-                        break
+                st.session_state["current_question_index"] = max(0, len(order) - 1)
+                duration_answer = st.session_state["answers"].get("Duration")
+                if duration_answer in [">120", "110-120", "<110"]:
+                    last_followup = duration_answer
+                    if last_followup in st.session_state["answers"]:
+                        del st.session_state["answers"][last_followup]
                 st.rerun()
         with col_submit:
             if st.button("Submit", use_container_width=True):
@@ -212,14 +214,35 @@ def render_guest_page():
         key=f"answer_{question_key}",
     )
 
-    col_back, col_next = st.columns(2)
-    with col_back:
-        if st.button("Back", use_container_width=True):
-            current_index = st.session_state["current_question_index"]
-            if current_index > 0:
-                st.session_state["current_question_index"] = current_index - 1
-            st.rerun()
-    with col_next:
+    if st.session_state["current_question_index"] > 0:
+        col_back, col_next = st.columns(2)
+        with col_back:
+            if st.button("Back", use_container_width=True):
+                if question_key in [">120", "110-120", "<110"]:
+                    if question_key in st.session_state["answers"]:
+                        del st.session_state["answers"][question_key]
+                    st.session_state["current_question_index"] = order.index("Duration")
+                else:
+                    st.session_state["current_question_index"] -= 1
+                st.rerun()
+        with col_next:
+            if st.button("Next", use_container_width=True):
+                if selected is None:
+                    st.error("Please select an option before continuing.")
+                    return
+                st.session_state["answers"][question_key] = selected
+
+                if question_key in order:
+                    idx = order.index(question_key)
+                    if question_key == "Duration":
+                        st.session_state["current_question_index"] = idx
+                    else:
+                        st.session_state["current_question_index"] = idx + 1
+                else:
+                    st.session_state["current_question_index"] = len(order)
+
+                st.rerun()
+    else:
         if st.button("Next", use_container_width=True):
             if selected is None:
                 st.error("Please select an option before continuing.")
