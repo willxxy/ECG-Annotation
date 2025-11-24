@@ -40,6 +40,17 @@ def get_connection():
 
 
 def save_all_responses(answers: dict, filename: str | None):
+    clean_answers = dict(answers)
+    duration_answer = clean_answers.get("Duration")
+    followups = [">120", "110-120", "<110"]
+    if duration_answer in followups:
+        for opt in followups:
+            if opt != duration_answer and opt in clean_answers:
+                del clean_answers[opt]
+    else:
+        for opt in followups:
+            if opt in clean_answers:
+                del clean_answers[opt]
     conn = get_connection()
     user_id = st.session_state["user_id"]
     cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id,))
@@ -48,7 +59,7 @@ def save_all_responses(answers: dict, filename: str | None):
         payload = {}
     else:
         payload = json.loads(row[0])
-    for key, answer in answers.items():
+    for key, answer in clean_answers.items():
         question_text = QRS_GRAPH[key]["question"]
         payload[question_text] = {
             "answer": answer,
@@ -184,15 +195,25 @@ def render_guest_page():
     st.write(question_text)
     if question_key in st.session_state["answers"]:
         prev_answer = st.session_state["answers"][question_key]
-        default_index = choices.index(prev_answer) if prev_answer in choices else None
+        if prev_answer in choices:
+            selected = st.radio(
+                "Your answer",
+                choices,
+                index=choices.index(prev_answer),
+                key=f"answer_{question_key}",
+            )
+        else:
+            selected = st.radio(
+                "Your answer",
+                choices,
+                key=f"answer_{question_key}",
+            )
     else:
-        default_index = None
-    selected = st.radio(
-        "Your answer",
-        choices,
-        index=default_index,
-        key=f"answer_{question_key}",
-    )
+        selected = st.radio(
+            "Your answer",
+            choices,
+            key=f"answer_{question_key}",
+        )
     if st.session_state["current_question_index"] > 0:
         col_back, col_next = st.columns(2)
         with col_back:
@@ -210,10 +231,11 @@ def render_guest_page():
                 st.rerun()
         with col_next:
             if st.button("Next", use_container_width=True):
-                if selected is None:
-                    st.error("Please select an option before continuing.")
-                    return
                 st.session_state["answers"][question_key] = selected
+                if question_key == "Duration":
+                    for opt in [">120", "110-120", "<110"]:
+                        if opt in st.session_state["answers"]:
+                            del st.session_state["answers"][opt]
                 if question_key in order:
                     idx = order.index(question_key)
                     if question_key == "Duration":
@@ -225,10 +247,11 @@ def render_guest_page():
                 st.rerun()
     else:
         if st.button("Next", use_container_width=True):
-            if selected is None:
-                st.error("Please select an option before continuing.")
-                return
             st.session_state["answers"][question_key] = selected
+            if question_key == "Duration":
+                for opt in [">120", "110-120", "<110"]:
+                    if opt in st.session_state["answers"]:
+                        del st.session_state["answers"][opt]
             if question_key in order:
                 idx = order.index(question_key)
                 if question_key == "Duration":
