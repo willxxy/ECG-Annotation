@@ -132,7 +132,7 @@ def render_admin_login():
 
         if password == admin_pw:
             st.session_state["role"] = "admin"
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Incorrect password.")
 
@@ -166,11 +166,11 @@ def render_landing():
     with col1:
         if st.button("Guest"):
             st.session_state["role"] = "guest"
-            st.experimental_rerun()
+            st.rerun()
     with col2:
         if st.button("Admin"):
             st.session_state["role"] = "admin_login"
-            st.experimental_rerun()
+            st.rerun()
 
 
 role = st.session_state["role"]
