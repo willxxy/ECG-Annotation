@@ -9,7 +9,8 @@ description = "Open source code of ECG-Annotation"
 requires-python = ">=3.10"
 dependencies = [
     "streamlit==1.51.0",
-    "pandas"
+    "pandas",
+    "matplotlib",
 ]
 
 [tool.ruff.lint]
