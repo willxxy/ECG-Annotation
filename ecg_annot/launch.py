@@ -221,7 +221,6 @@ def render_guest_page():
             choices,
             key=f"answer_{question_key}",
         )
-
     if st.session_state["current_question_index"] > 0:
         col_back, col_next = st.columns(2)
         with col_back:
