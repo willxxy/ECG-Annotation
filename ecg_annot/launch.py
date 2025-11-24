@@ -13,7 +13,6 @@ st.set_page_config(
 
 QUESTION = "In one sentence, describe what you see in this ECG."
 
-# One UUID per browser session (acts as "unique person")
 if "user_id" not in st.session_state:
     st.session_state["user_id"] = str(uuid.uuid4())
 
@@ -38,7 +37,6 @@ def save_response(question: str, answer: str, filename: str | None):
     conn = get_connection()
     user_id = st.session_state["user_id"]
 
-    # Load existing nested dict for this user (if any)
     cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     if row is None or row[0] is None:
@@ -46,7 +44,6 @@ def save_response(question: str, answer: str, filename: str | None):
     else:
         payload = json.loads(row[0])
 
-    # Nested structure: question -> {answer, filename, updated_at}
     payload[question] = {
         "answer": answer,
         "filename": filename,
