@@ -1,6 +1,15 @@
 [build-system]
 requires = ["setuptools>=64.0.0", "wheel"]
-build-backend = "setuptools.build_meta" 
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecg_annot"
+version = "0.0.0"
+description = "Open source code of ECG-Annotation"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit==1.51.0",
+]
 
 [tool.ruff.lint]
 select = ["ALL"]

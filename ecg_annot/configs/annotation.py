@@ -15,5 +15,10 @@ QRS_GRAPH = {
     "rSR'",
 }
 
+
+def create_qrs_graph():
+    pass
+
+
 if __name__ == "__main__":
     print(QRS_GRAPH)
