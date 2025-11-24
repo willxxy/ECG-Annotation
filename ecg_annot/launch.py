@@ -42,7 +42,7 @@ def get_connection():
     return conn
 
 
-def save_response(question: str, answer: str, filename: str | None):
+def save_all_responses(answers: dict, filename: str | None):
     conn = get_connection()
     user_id = st.session_state["user_id"]
 
@@ -53,11 +53,13 @@ def save_response(question: str, answer: str, filename: str | None):
     else:
         payload = json.loads(row[0])
 
-    payload[question] = {
-        "answer": answer,
-        "filename": filename,
-        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
-    }
+    for key, answer in answers.items():
+        question_text = QRS_GRAPH[key]["question"]
+        payload[question_text] = {
+            "answer": answer,
+            "filename": filename,
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        }
 
     data_str = json.dumps(payload)
 
@@ -129,8 +131,15 @@ st.markdown(
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
     }
     .stButton>button {
-        width: 100%;
         border-radius: 0.5rem;
+    }
+    .button-row {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1.5rem;
+    }
+    .button-row > div {
+        flex: 1;
     }
     </style>
     """,
@@ -144,15 +153,43 @@ def render_guest_page():
     uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
     filename = uploaded_file.name if uploaded_file is not None else None
 
+    order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
 
     if question_key is None:
-        st.success("All questions completed. Thank you!")
-        if st.button("Back to Portal"):
-            st.session_state["role"] = None
-            st.session_state["current_question_index"] = 0
-            st.session_state["answers"] = {}
-            st.rerun()
+        st.subheader("Review your answers")
+        for key in order:
+            if key in st.session_state["answers"]:
+                st.markdown(f"**{QRS_GRAPH[key]['question']}**")
+                st.write(st.session_state["answers"][key])
+        duration_answer = st.session_state["answers"].get("Duration")
+        if duration_answer == ">120" and ">120" in st.session_state["answers"]:
+            st.markdown(f"**{QRS_GRAPH['>120']['question']}**")
+            st.write(st.session_state["answers"][">120"])
+        elif duration_answer == "110-120" and "110-120" in st.session_state["answers"]:
+            st.markdown(f"**{QRS_GRAPH['110-120']['question']}**")
+            st.write(st.session_state["answers"]["110-120"])
+        elif duration_answer == "<110" and "<110" in st.session_state["answers"]:
+            st.markdown(f"**{QRS_GRAPH['<110']['question']}**")
+            st.write(st.session_state["answers"]["<110"])
+
+        col_back, col_submit = st.columns(2)
+        with col_back:
+            if st.button("Back", use_container_width=True):
+                for rev_key in reversed(order):
+                    if rev_key in st.session_state["answers"]:
+                        st.session_state["current_question_index"] = order.index(rev_key)
+                        break
+                st.rerun()
+        with col_submit:
+            if st.button("Submit", use_container_width=True):
+                save_all_responses(st.session_state["answers"], filename)
+                st.success("Thank you for your submission.")
+                if st.button("Back to Portal"):
+                    st.session_state["role"] = None
+                    st.session_state["current_question_index"] = 0
+                    st.session_state["answers"] = {}
+                    st.rerun()
         return
 
     question_data = QRS_GRAPH[question_key]
@@ -162,23 +199,43 @@ def render_guest_page():
     st.markdown("### Question")
     st.write(question_text)
 
-    selected = st.radio("Your answer", choices, key=f"answer_{question_key}")
+    if question_key in st.session_state["answers"]:
+        prev_answer = st.session_state["answers"][question_key]
+        default_index = choices.index(prev_answer) if prev_answer in choices else None
+    else:
+        default_index = None
 
-    if st.button("Next"):
-        st.session_state["answers"][question_key] = selected
-        save_response(question_text, selected, filename)
+    selected = st.radio(
+        "Your answer",
+        choices,
+        index=default_index,
+        key=f"answer_{question_key}",
+    )
 
-        order = get_question_order()
-        if question_key in order:
-            idx = order.index(question_key)
-            if question_key == "Duration":
-                st.session_state["current_question_index"] = idx
+    col_back, col_next = st.columns(2)
+    with col_back:
+        if st.button("Back", use_container_width=True):
+            current_index = st.session_state["current_question_index"]
+            if current_index > 0:
+                st.session_state["current_question_index"] = current_index - 1
+            st.rerun()
+    with col_next:
+        if st.button("Next", use_container_width=True):
+            if selected is None:
+                st.error("Please select an option before continuing.")
+                return
+            st.session_state["answers"][question_key] = selected
+
+            if question_key in order:
+                idx = order.index(question_key)
+                if question_key == "Duration":
+                    st.session_state["current_question_index"] = idx
+                else:
+                    st.session_state["current_question_index"] = idx + 1
             else:
-                st.session_state["current_question_index"] = idx + 1
-        else:
-            st.session_state["current_question_index"] = len(order)
+                st.session_state["current_question_index"] = len(order)
 
-        st.rerun()
+            st.rerun()
 
     if st.button("Back to Portal"):
         st.session_state["role"] = None
