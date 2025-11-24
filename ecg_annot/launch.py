@@ -136,7 +136,7 @@ st.markdown(
 
 
 def render_guest_page():
-    st.title("Minimal ECG Q&A")
+    st.title("ECG Annotation")
     uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
     filename = uploaded_file.name if uploaded_file is not None else None
     order = get_question_order()
