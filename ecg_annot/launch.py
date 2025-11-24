@@ -156,6 +156,13 @@ st.markdown(
 def render_guest_page():
     st.title("ECG Annotation")
     uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
+    if uploaded_file is None:
+        if st.button("Back to Portal"):
+            st.session_state["role"] = None
+            st.session_state["current_question_index"] = 0
+            st.session_state["answers"] = {}
+            st.rerun()
+        return
     filename = uploaded_file.name if uploaded_file is not None else None
     order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
