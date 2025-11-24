@@ -4,7 +4,12 @@ from datetime import datetime
 import uuid
 import json
 import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import tempfile
+import os
 from ecg_annot.configs.annotation import QRS_GRAPH
+from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only, PTB_ORDER
 
 st.set_page_config(
     page_title="Minimal Q&A",
@@ -21,6 +26,10 @@ if "current_question_index" not in st.session_state:
     st.session_state["current_question_index"] = 0
 if "answers" not in st.session_state:
     st.session_state["answers"] = {}
+if "ecg_data" not in st.session_state:
+    st.session_state["ecg_data"] = None
+if "selected_leads" not in st.session_state:
+    st.session_state["selected_leads"] = PTB_ORDER
 
 
 @st.cache_resource
@@ -161,9 +170,35 @@ def render_guest_page():
             st.session_state["role"] = None
             st.session_state["current_question_index"] = 0
             st.session_state["answers"] = {}
+            st.session_state["ecg_data"] = None
+            st.session_state["selected_leads"] = PTB_ORDER
             st.rerun()
         return
     filename = uploaded_file.name if uploaded_file is not None else None
+    if filename and filename.endswith(".xml"):
+        if st.session_state["ecg_data"] is None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_path = tmp_file.name
+            try:
+                st.session_state["ecg_data"] = load_ecg_signals_only(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+        if st.session_state["ecg_data"] is not None:
+            selected = st.multiselect("Select leads", PTB_ORDER, default=st.session_state["selected_leads"], key="lead_selector")
+            st.session_state["selected_leads"] = selected or PTB_ORDER
+            ecg_data = st.session_state["ecg_data"]
+            fig, ax = plt.subplots(figsize=(12, 8))
+            time_axis = np.arange(ecg_data.shape[1])
+            for i, lead in enumerate(PTB_ORDER):
+                if lead in st.session_state["selected_leads"]:
+                    ax.plot(time_axis, ecg_data[i], label=lead)
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Amplitude")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
+            plt.close(fig)
     order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
     if question_key is None:
@@ -200,6 +235,8 @@ def render_guest_page():
                     st.session_state["role"] = None
                     st.session_state["current_question_index"] = 0
                     st.session_state["answers"] = {}
+                    st.session_state["ecg_data"] = None
+                    st.session_state["selected_leads"] = PTB_ORDER
                     st.rerun()
         return
     question_data = QRS_GRAPH[question_key]
@@ -279,6 +316,8 @@ def render_guest_page():
         st.session_state["role"] = None
         st.session_state["current_question_index"] = 0
         st.session_state["answers"] = {}
+        st.session_state["ecg_data"] = None
+        st.session_state["selected_leads"] = PTB_ORDER
         st.rerun()
 
 
