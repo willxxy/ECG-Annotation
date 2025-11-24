@@ -221,10 +221,11 @@ def render_guest_page():
             choices,
             key=f"answer_{question_key}",
         )
-    if st.session_state["current_question_index"] > 0:
-        col_back, col_next = st.columns(2)
-        with col_back:
-            if st.button("Back", use_container_width=True):
+    col_back, col_next = st.columns(2)
+    with col_back:
+        back_disabled = st.session_state["current_question_index"] == 0
+        if st.button("Back", use_container_width=True, disabled=back_disabled):
+            if not back_disabled:
                 if question_key in [">120", "110-120", "<110"]:
                     if "Duration" in st.session_state["answers"]:
                         del st.session_state["answers"]["Duration"]
@@ -236,23 +237,7 @@ def render_guest_page():
                         del st.session_state["answers"][prev_question_key]
                     st.session_state["current_question_index"] = new_index
                 st.rerun()
-        with col_next:
-            if st.button("Next", use_container_width=True):
-                st.session_state["answers"][question_key] = selected
-                if question_key == "Duration":
-                    for opt in [">120", "110-120", "<110"]:
-                        if opt in st.session_state["answers"]:
-                            del st.session_state["answers"][opt]
-                if question_key in order:
-                    idx = order.index(question_key)
-                    if question_key == "Duration":
-                        st.session_state["current_question_index"] = idx
-                    else:
-                        st.session_state["current_question_index"] = idx + 1
-                else:
-                    st.session_state["current_question_index"] = len(order)
-                st.rerun()
-    else:
+    with col_next:
         if st.button("Next", use_container_width=True):
             st.session_state["answers"][question_key] = selected
             if question_key == "Duration":
