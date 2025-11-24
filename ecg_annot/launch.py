@@ -119,6 +119,13 @@ def load_all_users():
     return df
 
 
+def reset_database():
+    conn = get_connection()
+    conn.execute("DELETE FROM users")
+    conn.commit()
+    get_connection.clear()
+
+
 st.markdown(
     """
     <style>
@@ -290,20 +297,41 @@ def render_admin_login():
 def render_admin_page():
     st.title("Admin Panel")
     df = load_all_users()
-    if df.empty:
+    if not df.empty:
+        st.subheader("All user data")
+        st.dataframe(df, use_container_width=True)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download CSV",
+            csv,
+            "responses.csv",
+            "text/csv",
+        )
+    else:
         st.info("No responses yet.")
-        return
-    st.subheader("All user data")
-    st.dataframe(df, use_container_width=True)
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download CSV",
-        csv,
-        "responses.csv",
-        "text/csv",
-    )
+    st.divider()
+    if "reset_confirmed" not in st.session_state:
+        st.session_state["reset_confirmed"] = False
+    if st.session_state["reset_confirmed"]:
+        st.warning("⚠️ Are you sure you want to delete ALL data? This cannot be undone.")
+        col_confirm, col_cancel = st.columns(2)
+        with col_confirm:
+            if st.button("Confirm Reset", type="primary", use_container_width=True):
+                reset_database()
+                st.session_state["reset_confirmed"] = False
+                st.success("Database reset successfully.")
+                st.rerun()
+        with col_cancel:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state["reset_confirmed"] = False
+                st.rerun()
+    else:
+        if st.button("Reset Database", type="secondary", use_container_width=True):
+            st.session_state["reset_confirmed"] = True
+            st.rerun()
     if st.button("Back to Portal"):
         st.session_state["role"] = None
+        st.session_state["reset_confirmed"] = False
         st.rerun()
 
 
