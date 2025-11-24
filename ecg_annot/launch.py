@@ -218,9 +218,9 @@ def render_guest_page():
         col_back, col_next = st.columns(2)
         with col_back:
             if st.button("Back", use_container_width=True):
+                if question_key in st.session_state["answers"]:
+                    del st.session_state["answers"][question_key]
                 if question_key in [">120", "110-120", "<110"]:
-                    if question_key in st.session_state["answers"]:
-                        del st.session_state["answers"][question_key]
                     st.session_state["current_question_index"] = order.index("Duration")
                 else:
                     st.session_state["current_question_index"] -= 1
@@ -240,7 +240,6 @@ def render_guest_page():
                         st.session_state["current_question_index"] = idx + 1
                 else:
                     st.session_state["current_question_index"] = len(order)
-
                 st.rerun()
     else:
         if st.button("Next", use_container_width=True):
