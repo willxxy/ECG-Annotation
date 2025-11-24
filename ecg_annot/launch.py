@@ -1,9 +1,7 @@
 import streamlit as st
 from datetime import datetime
-import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+import os
 
-# --- Configuration ---
 st.set_page_config(
     page_title="ECG Annotation",
     page_icon="📊",
@@ -11,26 +9,26 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# --- Styles ---
 st.markdown(
     """
     <style>
-    .main { padding-top: 2rem; padding-bottom: 2rem; }
-    .stButton>button { width: 100%; border-radius: 0.5rem; }
+    .main {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 0.5rem;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.title("📊 ECG Annotation")
+
 st.markdown("---")
 
-# --- Google Sheets Connection ---
-# We establish the connection here.
-# It requires a .streamlit/secrets.toml file to work (see instructions).
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# --- UI Layout ---
 st.subheader("File Upload")
 uploaded_file = st.file_uploader(
     "Upload your ECG file",
@@ -52,47 +50,45 @@ answer = st.text_area(
     label_visibility="collapsed",
 )
 
-# --- Submission Logic ---
+if "submission_content" not in st.session_state:
+    st.session_state.submission_content = None
+if "submission_filename" not in st.session_state:
+    st.session_state.submission_filename = None
+
 if st.button("Submit", type="primary"):
-    if not answer.strip():
+    if answer.strip():
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp_file = now.strftime("%Y%m%d_%H%M%S")
+
+        data_dir = "submissions"
+        os.makedirs(data_dir, exist_ok=True)
+
+        filename = os.path.join(data_dir, f"submission_{timestamp_file}.txt")
+
+        submission_content = f"Timestamp: {timestamp}\n"
+        submission_content += f"Question: {question}\n"
+        submission_content += f"Answer: {answer}\n"
+        if uploaded_file is not None:
+            submission_content += f"File uploaded: {uploaded_file.name}\n"
+
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(submission_content)
+
+        st.session_state.submission_content = submission_content
+        st.session_state.submission_filename = f"submission_{timestamp_file}.txt"
+
+        st.success("Response saved successfully!")
+        st.rerun()
+    else:
         st.warning("Please enter an answer before submitting.")
-        st.stop()
 
-    try:
-        # 1. Fetch existing data to ensure we match the schema
-        # We assume the sheet has headers: "Timestamp", "Filename", "Question", "Answer"
-        # If the sheet is empty, this creates the dataframe structure.
-        try:
-            existing_data = conn.read(worksheet="Sheet1", usecols=list(range(4)), ttl=5)
-            existing_data = existing_data.dropna(how="all")
-        except Exception:
-            # If sheet is completely empty or new
-            existing_data = pd.DataFrame(columns=["Timestamp", "Filename", "Question", "Answer"])
-
-        # 2. Prepare new data
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        filename_str = uploaded_file.name if uploaded_file else "No file uploaded"
-
-        new_row = pd.DataFrame([
-            {
-                "Timestamp": timestamp,
-                "Filename": filename_str,
-                "Question": question,
-                "Answer": answer,
-            }
-        ])
-
-        # 3. Append and Update
-        # Concatenate old and new data
-        updated_df = pd.concat([existing_data, new_row], ignore_index=True)
-
-        # Write back to Google Sheets
-        conn.update(worksheet="Sheet1", data=updated_df)
-
-        st.success("Response saved successfully to Google Sheets!")
-
-        # Optional: Clear the form (requires session state management tricks or rerun)
-        # st.rerun()
-
-    except Exception as e:
-        st.error(f"An error occurred saving to the database: {e}")
+if st.session_state.submission_content is not None:
+    st.markdown("---")
+    st.download_button(
+        label="📥 Download Submission",
+        data=st.session_state.submission_content,
+        file_name=st.session_state.submission_filename,
+        mime="text/plain",
+        type="primary",
+    )
