@@ -118,6 +118,10 @@ def render_guest_page():
             save_response(QUESTION, answer.strip(), filename)
             st.success("Submitted. Thank you!")
 
+    if st.button("Back to Portal"):
+        st.session_state["role"] = None
+        st.rerun()
+
 
 def render_admin_login():
     st.title("Admin Login")
@@ -135,6 +139,10 @@ def render_admin_login():
             st.rerun()
         else:
             st.error("Incorrect password.")
+
+    if st.button("Back to Portal"):
+        st.session_state["role"] = None
+        st.rerun()
 
 
 def render_admin_page():
@@ -156,6 +164,10 @@ def render_admin_page():
         "responses.csv",
         "text/csv",
     )
+
+    if st.button("Back to Portal"):
+        st.session_state["role"] = None
+        st.rerun()
 
 
 def render_landing():
