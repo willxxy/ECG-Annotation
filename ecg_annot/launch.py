@@ -3,6 +3,7 @@ import sqlite3
 from datetime import datetime
 import uuid
 import json
+import pandas as pd
 
 st.set_page_config(
     page_title="Minimal Q&A",
@@ -15,6 +16,9 @@ QUESTION = "In one sentence, describe what you see in this ECG."
 
 if "user_id" not in st.session_state:
     st.session_state["user_id"] = str(uuid.uuid4())
+
+if "role" not in st.session_state:
+    st.session_state["role"] = None
 
 
 @st.cache_resource
@@ -70,6 +74,12 @@ def save_response(question: str, answer: str, filename: str | None):
     conn.commit()
 
 
+def load_all_users():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM users", conn)
+    return df
+
+
 st.markdown(
     """
     <style>
@@ -89,19 +99,87 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("Minimal ECG Q&A")
 
-uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
+def render_guest_page():
+    st.title("Minimal ECG Q&A")
 
-st.markdown("### Question")
-st.write(QUESTION)
+    uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
 
-answer = st.text_area("Your answer", placeholder="Type your answer here...", height=120)
+    st.markdown("### Question")
+    st.write(QUESTION)
 
-if st.button("Submit"):
-    if not answer.strip():
-        st.error("Please enter an answer before submitting.")
-    else:
-        filename = uploaded_file.name if uploaded_file is not None else None
-        save_response(QUESTION, answer.strip(), filename)
-        st.success("Submitted. Thank you!")
+    answer = st.text_area("Your answer", placeholder="Type your answer here...", height=120)
+
+    if st.button("Submit"):
+        if not answer.strip():
+            st.error("Please enter an answer before submitting.")
+        else:
+            filename = uploaded_file.name if uploaded_file is not None else None
+            save_response(QUESTION, answer.strip(), filename)
+            st.success("Submitted. Thank you!")
+
+
+def render_admin_login():
+    st.title("Admin Login")
+
+    password = st.text_input("Enter admin password", type="password")
+    if st.button("Login"):
+        try:
+            admin_pw = st.secrets["ADMIN_PASSWORD"]
+        except Exception:
+            st.error("ADMIN_PASSWORD not set in secrets.")
+            return
+
+        if password == admin_pw:
+            st.session_state["role"] = "admin"
+            st.experimental_rerun()
+        else:
+            st.error("Incorrect password.")
+
+
+def render_admin_page():
+    st.title("Admin Panel")
+
+    df = load_all_users()
+
+    if df.empty:
+        st.info("No responses yet.")
+        return
+
+    st.subheader("All user data")
+    st.dataframe(df, use_container_width=True)
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download CSV",
+        csv,
+        "responses.csv",
+        "text/csv",
+    )
+
+
+def render_landing():
+    st.title("ECG Annotation Portal")
+    st.write("Choose mode:")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Guest"):
+            st.session_state["role"] = "guest"
+            st.experimental_rerun()
+    with col2:
+        if st.button("Admin"):
+            st.session_state["role"] = "admin_login"
+            st.experimental_rerun()
+
+
+role = st.session_state["role"]
+
+if role is None:
+    render_landing()
+elif role == "guest":
+    render_guest_page()
+elif role == "admin_login":
+    render_admin_login()
+elif role == "admin":
+    render_admin_page()
