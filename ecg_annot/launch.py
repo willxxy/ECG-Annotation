@@ -4,12 +4,13 @@ from datetime import datetime
 import uuid
 import json
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 import tempfile
 import os
 from ecg_annot.configs.annotation import QRS_GRAPH
 from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only, PTB_ORDER
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 st.set_page_config(
     page_title="Minimal Q&A",
@@ -29,7 +30,7 @@ if "answers" not in st.session_state:
 if "ecg_data" not in st.session_state:
     st.session_state["ecg_data"] = None
 if "selected_leads" not in st.session_state:
-    st.session_state["selected_leads"] = PTB_ORDER
+    st.session_state["selected_leads"] = [PTB_ORDER[1]]
 
 
 @st.cache_resource
@@ -171,7 +172,7 @@ def render_guest_page():
             st.session_state["current_question_index"] = 0
             st.session_state["answers"] = {}
             st.session_state["ecg_data"] = None
-            st.session_state["selected_leads"] = PTB_ORDER
+            st.session_state["selected_leads"] = [PTB_ORDER[1]]
             st.rerun()
         return
     filename = uploaded_file.name if uploaded_file is not None else None
@@ -185,20 +186,48 @@ def render_guest_page():
             finally:
                 os.unlink(tmp_path)
         if st.session_state["ecg_data"] is not None:
-            selected = st.multiselect("Select leads", PTB_ORDER, default=st.session_state["selected_leads"], key="lead_selector")
-            st.session_state["selected_leads"] = selected or PTB_ORDER
             ecg_data = st.session_state["ecg_data"]
-            fig, ax = plt.subplots(figsize=(12, 8))
-            time_axis = np.arange(ecg_data.shape[1])
+            cols = st.columns(6)
+            selected_leads = []
             for i, lead in enumerate(PTB_ORDER):
-                if lead in st.session_state["selected_leads"]:
-                    ax.plot(time_axis, ecg_data[i], label=lead)
-            ax.set_xlabel("Time")
-            ax.set_ylabel("Amplitude")
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-            st.pyplot(fig)
-            plt.close(fig)
+                col = cols[i % len(cols)]
+                key = f"lead_{lead}"
+                if key not in st.session_state:
+                    st.session_state[key] = lead in st.session_state["selected_leads"]
+                val = col.checkbox(lead, key=key)
+                if val:
+                    selected_leads.append(lead)
+            if not selected_leads:
+                selected_leads = [PTB_ORDER[1]]
+            st.session_state["selected_leads"] = selected_leads
+            time_axis = np.arange(ecg_data.shape[1])
+            if len(selected_leads) == 1:
+                lead = selected_leads[0]
+                idx = PTB_ORDER.index(lead)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead))
+                fig.update_layout(xaxis_title="Time", yaxis_title="Amplitude")
+            else:
+                fig = make_subplots(
+                    rows=len(selected_leads),
+                    cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.02,
+                )
+                for i, lead in enumerate(selected_leads):
+                    idx = PTB_ORDER.index(lead)
+                    fig.add_trace(
+                        go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead),
+                        row=i + 1,
+                        col=1,
+                    )
+                    fig.update_yaxes(title_text=lead, row=i + 1, col=1)
+                fig.update_layout(
+                    xaxis_title="Time",
+                    height=200 * len(selected_leads),
+                    showlegend=False,
+                )
+            st.plotly_chart(fig, use_container_width=True)
     order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
     if question_key is None:
@@ -236,7 +265,7 @@ def render_guest_page():
                     st.session_state["current_question_index"] = 0
                     st.session_state["answers"] = {}
                     st.session_state["ecg_data"] = None
-                    st.session_state["selected_leads"] = PTB_ORDER
+                    st.session_state["selected_leads"] = [PTB_ORDER[1]]
                     st.rerun()
         return
     question_data = QRS_GRAPH[question_key]
@@ -317,7 +346,7 @@ def render_guest_page():
         st.session_state["current_question_index"] = 0
         st.session_state["answers"] = {}
         st.session_state["ecg_data"] = None
-        st.session_state["selected_leads"] = PTB_ORDER
+        st.session_state["selected_leads"] = [PTB_ORDER[1]]
         st.rerun()
 
 

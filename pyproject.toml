@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "streamlit==1.51.0",
     "pandas",
-    "matplotlib",
+    "numpy",
+    "plotly"
 ]
 
 [tool.ruff.lint]
