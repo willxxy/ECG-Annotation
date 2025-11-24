@@ -50,21 +50,45 @@ answer = st.text_area(
     label_visibility="collapsed",
 )
 
+if "submission_content" not in st.session_state:
+    st.session_state.submission_content = None
+if "submission_filename" not in st.session_state:
+    st.session_state.submission_filename = None
+
 if st.button("Submit", type="primary"):
     if answer.strip():
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp_file = now.strftime("%Y%m%d_%H%M%S")
+
         data_dir = "submissions"
         os.makedirs(data_dir, exist_ok=True)
 
-        filename = os.path.join(data_dir, f"submission_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        filename = os.path.join(data_dir, f"submission_{timestamp_file}.txt")
+
+        submission_content = f"Timestamp: {timestamp}\n"
+        submission_content += f"Question: {question}\n"
+        submission_content += f"Answer: {answer}\n"
+        if uploaded_file is not None:
+            submission_content += f"File uploaded: {uploaded_file.name}\n"
+
         with open(filename, "w", encoding="utf-8") as f:
-            f.write(f"Timestamp: {timestamp}\n")
-            f.write(f"Question: {question}\n")
-            f.write(f"Answer: {answer}\n")
-            if uploaded_file is not None:
-                f.write(f"File uploaded: {uploaded_file.name}\n")
+            f.write(submission_content)
+
+        st.session_state.submission_content = submission_content
+        st.session_state.submission_filename = f"submission_{timestamp_file}.txt"
 
         st.success("Response saved successfully!")
         st.rerun()
     else:
         st.warning("Please enter an answer before submitting.")
+
+if st.session_state.submission_content is not None:
+    st.markdown("---")
+    st.download_button(
+        label="📥 Download Submission",
+        data=st.session_state.submission_content,
+        file_name=st.session_state.submission_filename,
+        mime="text/plain",
+        type="primary",
+    )
