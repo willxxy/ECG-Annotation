@@ -163,17 +163,21 @@ st.markdown(
 )
 
 
+def back_to_portal():
+    if st.button("Back to Portal"):
+        st.session_state["role"] = None
+        st.session_state["current_question_index"] = 0
+        st.session_state["answers"] = {}
+        st.session_state["ecg_data"] = None
+        st.session_state["selected_leads"] = [PTB_ORDER[1]]
+        st.rerun()
+
+
 def render_guest_page():
+    back_to_portal()
     st.title("ECG Annotation")
     uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
     if uploaded_file is None:
-        if st.button("Back to Portal"):
-            st.session_state["role"] = None
-            st.session_state["current_question_index"] = 0
-            st.session_state["answers"] = {}
-            st.session_state["ecg_data"] = None
-            st.session_state["selected_leads"] = [PTB_ORDER[1]]
-            st.rerun()
         return
     filename = uploaded_file.name if uploaded_file is not None else None
     if filename and filename.endswith(".xml"):
@@ -260,13 +264,6 @@ def render_guest_page():
             if st.button("Submit", use_container_width=True):
                 save_all_responses(st.session_state["answers"], filename)
                 st.success("Thank you for your submission.")
-                if st.button("Back to Portal"):
-                    st.session_state["role"] = None
-                    st.session_state["current_question_index"] = 0
-                    st.session_state["answers"] = {}
-                    st.session_state["ecg_data"] = None
-                    st.session_state["selected_leads"] = [PTB_ORDER[1]]
-                    st.rerun()
         return
     question_data = QRS_GRAPH[question_key]
     question_text = question_data["question"]
@@ -341,13 +338,6 @@ def render_guest_page():
             else:
                 st.session_state["current_question_index"] = len(order)
             st.rerun()
-    if st.button("Back to Portal"):
-        st.session_state["role"] = None
-        st.session_state["current_question_index"] = 0
-        st.session_state["answers"] = {}
-        st.session_state["ecg_data"] = None
-        st.session_state["selected_leads"] = [PTB_ORDER[1]]
-        st.rerun()
 
 
 def render_admin_login():
