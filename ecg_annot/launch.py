@@ -211,7 +211,7 @@ def render_guest_page():
                 fig = make_subplots(
                     rows=len(selected_leads),
                     cols=1,
-                    shared_xaxes=True,
+                    shared_xaxes=False,
                     vertical_spacing=0.02,
                 )
                 for i, lead in enumerate(selected_leads):
