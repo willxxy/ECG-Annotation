@@ -85,8 +85,19 @@ def save_all_responses(answers: dict, filename: str | None):
 
 
 def get_next_question_key(current_index, answers):
+    if answers.get("QRS") == "No (Asystole)":
+        return None
+    preexc = answers.get("Preexcitation")
+    if preexc == "No" and "AP" in QUESTION_ORDER:
+        skip_ap = True
+    else:
+        skip_ap = False
+    if preexc == "Yes" and "AP" in answers:
+        return None
     for i in range(current_index, len(QUESTION_ORDER)):
         key = QUESTION_ORDER[i]
+        if skip_ap and key == "AP":
+            continue
         if key not in answers:
             return key
         if key == "Duration" and answers[key] in DURATION_FOLLOWUPS and answers[key] not in answers:
@@ -255,9 +266,24 @@ def render_review_page():
         st.write(answers[duration_answer])
 
     def go_back():
-        st.session_state["current_question_index"] = max(0, len(QUESTION_ORDER) - 1)
-        if answers.get("Duration") in DURATION_FOLLOWUPS:
-            answers.pop("Duration", None)
+        for followup in DURATION_FOLLOWUPS:
+            if followup in answers:
+                answers.pop(followup, None)
+                st.session_state["current_question_index"] = len(QUESTION_ORDER)
+                st.rerun()
+                return
+        last_answered_index = -1
+        for i in range(len(QUESTION_ORDER) - 1, -1, -1):
+            key = QUESTION_ORDER[i]
+            if key in answers:
+                last_answered_index = i
+                break
+        if last_answered_index >= 0:
+            last_key = QUESTION_ORDER[last_answered_index]
+            answers.pop(last_key, None)
+            st.session_state["current_question_index"] = last_answered_index
+        else:
+            st.session_state["current_question_index"] = 0
         st.rerun()
 
     def submit():
