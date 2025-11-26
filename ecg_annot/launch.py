@@ -157,6 +157,9 @@ st.markdown(
     .button-row > div {
         flex: 1;
     }
+    div[data-testid="stRadio"] > div {
+        min-height: 120px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -231,7 +234,7 @@ def render_guest_page():
                     height=200 * len(selected_leads),
                     showlegend=False,
                 )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
     order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
     if question_key is None:
@@ -252,7 +255,7 @@ def render_guest_page():
             st.write(st.session_state["answers"]["<110"])
         col_back, col_submit = st.columns(2)
         with col_back:
-            if st.button("Back", use_container_width=True):
+            if st.button("Back", width="stretch"):
                 st.session_state["current_question_index"] = max(0, len(order) - 1)
                 duration_answer = st.session_state["answers"].get("Duration")
                 if duration_answer in [">120", "110-120", "<110"]:
@@ -261,7 +264,7 @@ def render_guest_page():
                         del st.session_state["answers"][last_followup]
                 st.rerun()
         with col_submit:
-            if st.button("Submit", use_container_width=True):
+            if st.button("Submit", width="stretch"):
                 save_all_responses(st.session_state["answers"], filename)
                 st.success("Thank you for your submission.")
         return
@@ -294,7 +297,7 @@ def render_guest_page():
     if st.session_state["current_question_index"] > 0:
         col_back, col_next = st.columns(2)
         with col_back:
-            if st.button("Back", use_container_width=True):
+            if st.button("Back", width="stretch"):
                 if question_key in [">120", "110-120", "<110"]:
                     if "Duration" in st.session_state["answers"]:
                         del st.session_state["answers"]["Duration"]
@@ -307,7 +310,7 @@ def render_guest_page():
                     st.session_state["current_question_index"] = new_index
                 st.rerun()
         with col_next:
-            if st.button("Next", use_container_width=True):
+            if st.button("Next", width="stretch"):
                 st.session_state["answers"][question_key] = selected
                 if question_key == "Duration":
                     for opt in [">120", "110-120", "<110"]:
@@ -323,7 +326,7 @@ def render_guest_page():
                     st.session_state["current_question_index"] = len(order)
                 st.rerun()
     else:
-        if st.button("Next", use_container_width=True):
+        if st.button("Next", width="stretch"):
             st.session_state["answers"][question_key] = selected
             if question_key == "Duration":
                 for opt in [">120", "110-120", "<110"]:
@@ -364,7 +367,7 @@ def render_admin_page():
     df = load_all_users()
     if not df.empty:
         st.subheader("All user data")
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width="stretch")
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "Download CSV",
@@ -381,17 +384,17 @@ def render_admin_page():
         st.warning("⚠️ Are you sure you want to delete ALL data? This cannot be undone.")
         col_confirm, col_cancel = st.columns(2)
         with col_confirm:
-            if st.button("Confirm Reset", type="primary", use_container_width=True):
+            if st.button("Confirm Reset", type="primary", width="stretch"):
                 reset_database()
                 st.session_state["reset_confirmed"] = False
                 st.success("Database reset successfully.")
                 st.rerun()
         with col_cancel:
-            if st.button("Cancel", use_container_width=True):
+            if st.button("Cancel", width="stretch"):
                 st.session_state["reset_confirmed"] = False
                 st.rerun()
     else:
-        if st.button("Reset Database", type="secondary", use_container_width=True):
+        if st.button("Reset Database", type="secondary", width="stretch"):
             st.session_state["reset_confirmed"] = True
             st.rerun()
     if st.button("Back to Portal"):

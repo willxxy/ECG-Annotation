@@ -25,6 +25,7 @@ INSTALL_REQUIRES = [
     "termcolor==3.0.1",
     "pytest",
     "streamlit==1.51.0",
+    "plotly",
 ]
 
 setup(
