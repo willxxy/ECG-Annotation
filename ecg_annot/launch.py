@@ -228,7 +228,10 @@ def render_ecg_plot(ecg_data, selected_leads):
             idx = PTB_ORDER.index(lead)
             fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead), row=i + 1, col=1)
             fig.update_yaxes(title_text=lead, row=i + 1, col=1)
-        fig.update_layout(xaxis_title="Time", height=200 * len(selected_leads), showlegend=False)
+            if i < len(selected_leads) - 1:
+                fig.update_xaxes(showticklabels=False, row=i + 1, col=1)
+        fig.update_xaxes(title_text="Time", row=len(selected_leads), col=1)
+        fig.update_layout(height=200 * len(selected_leads), showlegend=False)
     st.plotly_chart(fig, width="stretch")
 
 
