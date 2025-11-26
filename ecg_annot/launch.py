@@ -20,26 +20,29 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-if "user_id" not in st.session_state:
-    st.session_state["user_id"] = str(uuid.uuid4())
-if "role" not in st.session_state:
-    st.session_state["role"] = None
-if "current_question_index" not in st.session_state:
-    st.session_state["current_question_index"] = 0
-if "answers" not in st.session_state:
-    st.session_state["answers"] = {}
-if "ecg_data" not in st.session_state:
-    st.session_state["ecg_data"] = None
-if "selected_leads" not in st.session_state:
-    st.session_state["selected_leads"] = [PTB_ORDER[1]]
-if "file_uploaded" not in st.session_state:
-    st.session_state["file_uploaded"] = False
-if "current_filename" not in st.session_state:
-    st.session_state["current_filename"] = None
-if "completed_files" not in st.session_state:
-    st.session_state["completed_files"] = []
-if "submission_complete" not in st.session_state:
-    st.session_state["submission_complete"] = False
+DURATION_FOLLOWUPS = [">120", "110-120", "<110"]
+
+
+def init_session_state():
+    defaults = {
+        "user_id": lambda: str(uuid.uuid4()),
+        "role": None,
+        "current_question_index": 0,
+        "answers": dict,
+        "ecg_data": None,
+        "selected_leads": lambda: [PTB_ORDER[1]],
+        "file_uploaded": False,
+        "current_filename": None,
+        "completed_files": list,
+        "submission_complete": False,
+        "reset_confirmed": False,
+    }
+    for key, default in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default() if callable(default) else default
+
+
+init_session_state()
 
 
 @st.cache_resource
@@ -55,19 +58,21 @@ def get_worksheet():
     return sheet.sheet1
 
 
-def save_all_responses(answers: dict, filename: str | None):
-    clean_answers = dict(answers)
-    duration_answer = clean_answers.get("Duration")
-    followups = [">120", "110-120", "<110"]
-    if duration_answer in followups:
-        for opt in followups:
-            if opt != duration_answer and opt in clean_answers:
-                del clean_answers[opt]
+def clean_duration_answers(answers):
+    clean = dict(answers)
+    duration = clean.get("Duration")
+    if duration in DURATION_FOLLOWUPS:
+        for opt in DURATION_FOLLOWUPS:
+            if opt != duration:
+                clean.pop(opt, None)
     else:
-        for opt in followups:
-            if opt in clean_answers:
-                del clean_answers[opt]
+        for opt in DURATION_FOLLOWUPS:
+            clean.pop(opt, None)
+    return clean
 
+
+def save_all_responses(answers: dict, filename: str | None):
+    clean_answers = clean_duration_answers(answers)
     user_id = st.session_state["user_id"]
     ws = get_worksheet()
 
@@ -78,15 +83,9 @@ def save_all_responses(answers: dict, filename: str | None):
             existing_row = i + 2
             break
 
-    if existing_row:
-        current_data = json.loads(all_data[existing_row - 2].get("data", "{}"))
-    else:
-        current_data = {}
+    current_data = json.loads(all_data[existing_row - 2].get("data", "{}")) if existing_row else {}
 
-    file_data = {}
-    for key, answer in clean_answers.items():
-        question_text = QRS_GRAPH[key]["question"]
-        file_data[question_text] = answer
+    file_data = {QRS_GRAPH[key]["question"]: answer for key, answer in clean_answers.items()}
     file_data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
 
     current_data[filename] = file_data
@@ -99,8 +98,7 @@ def save_all_responses(answers: dict, filename: str | None):
 
 
 def get_question_order():
-    base_order = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
-    return base_order
+    return ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
 
 
 def get_next_question_key(current_index, answers):
@@ -111,25 +109,17 @@ def get_next_question_key(current_index, answers):
             return key
         if key == "Duration":
             duration_answer = answers[key]
-            if duration_answer == ">120" and ">120" not in answers:
-                return ">120"
-            elif duration_answer == "110-120" and "110-120" not in answers:
-                return "110-120"
-            elif duration_answer == "<110" and "<110" not in answers:
-                return "<110"
+            if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
+                return duration_answer
+
     duration_answer = answers.get("Duration")
-    if duration_answer == ">120" and ">120" not in answers:
-        return ">120"
-    elif duration_answer == "110-120" and "110-120" not in answers:
-        return "110-120"
-    elif duration_answer == "<110" and "<110" not in answers:
-        return "<110"
+    if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
+        return duration_answer
     return None
 
 
 def load_all_users():
-    ws = get_worksheet()
-    return pd.DataFrame(ws.get_all_records())
+    return pd.DataFrame(get_worksheet().get_all_records())
 
 
 def reset_database():
@@ -140,13 +130,15 @@ def reset_database():
 
 
 def reset_session_for_new_file():
-    st.session_state["current_question_index"] = 0
-    st.session_state["answers"] = {}
-    st.session_state["ecg_data"] = None
-    st.session_state["selected_leads"] = [PTB_ORDER[1]]
-    st.session_state["file_uploaded"] = False
-    st.session_state["current_filename"] = None
-    st.session_state["submission_complete"] = False
+    st.session_state.update({
+        "current_question_index": 0,
+        "answers": {},
+        "ecg_data": None,
+        "selected_leads": [PTB_ORDER[1]],
+        "file_uploaded": False,
+        "current_filename": None,
+        "submission_complete": False,
+    })
 
 
 st.markdown(
@@ -211,14 +203,75 @@ def render_completed_files_widget():
         )
 
 
-def render_file_upload_page():
+def render_page_header(title, subtitle=None):
     back_to_portal()
     render_completed_files_widget()
-    st.title("ECG Annotation")
-    st.subheader("Upload ECG File")
+    st.title(title)
+    if subtitle:
+        st.subheader(subtitle)
+    if st.session_state.get("current_filename"):
+        st.caption(f"File: {st.session_state['current_filename']}")
+
+
+def render_button_pair(left_text, right_text, left_callback, right_callback, right_type="primary"):
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(left_text, width="stretch"):
+            left_callback()
+    with col2:
+        if st.button(right_text, type=right_type, width="stretch"):
+            right_callback()
+
+
+def render_lead_selection(ecg_data):
+    cols = st.columns(6)
+    selected_leads = []
+    for i, lead in enumerate(PTB_ORDER):
+        key = f"lead_{lead}"
+        st.session_state.setdefault(key, lead in st.session_state["selected_leads"])
+        if cols[i % 6].checkbox(lead, key=key):
+            selected_leads.append(lead)
+    return selected_leads or [PTB_ORDER[1]]
+
+
+def render_ecg_plot(ecg_data, selected_leads):
+    time_axis = np.arange(ecg_data.shape[1])
+
+    if len(selected_leads) == 1:
+        lead = selected_leads[0]
+        idx = PTB_ORDER.index(lead)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead))
+        fig.update_layout(xaxis_title="Time", yaxis_title="Amplitude")
+    else:
+        fig = make_subplots(
+            rows=len(selected_leads),
+            cols=1,
+            shared_xaxes=False,
+            vertical_spacing=0.02,
+        )
+        for i, lead in enumerate(selected_leads):
+            idx = PTB_ORDER.index(lead)
+            fig.add_trace(
+                go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead),
+                row=i + 1,
+                col=1,
+            )
+            fig.update_yaxes(title_text=lead, row=i + 1, col=1)
+        fig.update_layout(
+            xaxis_title="Time",
+            height=200 * len(selected_leads),
+            showlegend=False,
+        )
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_file_upload_page():
+    render_page_header("ECG Annotation", "Upload ECG File")
     uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
     if uploaded_file is None:
         return
+
     filename = uploaded_file.name
     if filename and filename.endswith(".xml"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp_file:
@@ -234,170 +287,102 @@ def render_file_upload_page():
             st.rerun()
 
 
+def render_review_page():
+    order = get_question_order()
+    st.subheader("Review your answers")
+
+    for key in order:
+        if key in st.session_state["answers"]:
+            st.markdown(f"**{QRS_GRAPH[key]['question']}**")
+            st.write(st.session_state["answers"][key])
+
+    duration_answer = st.session_state["answers"].get("Duration")
+    if duration_answer in DURATION_FOLLOWUPS and duration_answer in st.session_state["answers"]:
+        st.markdown(f"**{QRS_GRAPH[duration_answer]['question']}**")
+        st.write(st.session_state["answers"][duration_answer])
+
+    def go_back():
+        st.session_state["current_question_index"] = max(0, len(order) - 1)
+        duration_answer = st.session_state["answers"].get("Duration")
+        if duration_answer in DURATION_FOLLOWUPS:
+            st.session_state["answers"].pop(duration_answer, None)
+        st.rerun()
+
+    def submit():
+        save_all_responses(st.session_state["answers"], st.session_state["current_filename"])
+        if st.session_state["current_filename"] not in st.session_state["completed_files"]:
+            st.session_state["completed_files"].append(st.session_state["current_filename"])
+        st.session_state["submission_complete"] = True
+        st.rerun()
+
+    render_button_pair("Back", "Submit", go_back, submit)
+
+
+def handle_back_navigation(question_key, order):
+    if question_key in DURATION_FOLLOWUPS:
+        st.session_state["answers"].pop("Duration", None)
+        st.session_state["current_question_index"] = order.index("Duration")
+    else:
+        new_index = st.session_state["current_question_index"] - 1
+        prev_question_key = order[new_index]
+        st.session_state["answers"].pop(prev_question_key, None)
+        st.session_state["current_question_index"] = new_index
+    st.rerun()
+
+
+def handle_next_navigation(question_key, selected, order):
+    st.session_state["answers"][question_key] = selected
+    if question_key == "Duration":
+        for opt in DURATION_FOLLOWUPS:
+            st.session_state["answers"].pop(opt, None)
+
+    if question_key in order:
+        idx = order.index(question_key)
+        st.session_state["current_question_index"] = idx if question_key == "Duration" else idx + 1
+    else:
+        st.session_state["current_question_index"] = len(order)
+    st.rerun()
+
+
 def render_questions_page():
-    back_to_portal()
-    render_completed_files_widget()
-    st.title("ECG Annotation")
-    if st.session_state["current_filename"]:
-        st.caption(f"File: {st.session_state['current_filename']}")
+    render_page_header("ECG Annotation")
+
     if st.session_state["ecg_data"] is not None:
-        ecg_data = st.session_state["ecg_data"]
-        cols = st.columns(6)
-        selected_leads = []
-        for i, lead in enumerate(PTB_ORDER):
-            col = cols[i % len(cols)]
-            key = f"lead_{lead}"
-            if key not in st.session_state:
-                st.session_state[key] = lead in st.session_state["selected_leads"]
-            val = col.checkbox(lead, key=key)
-            if val:
-                selected_leads.append(lead)
-        if not selected_leads:
-            selected_leads = [PTB_ORDER[1]]
+        selected_leads = render_lead_selection(st.session_state["ecg_data"])
         st.session_state["selected_leads"] = selected_leads
-        time_axis = np.arange(ecg_data.shape[1])
-        if len(selected_leads) == 1:
-            lead = selected_leads[0]
-            idx = PTB_ORDER.index(lead)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead))
-            fig.update_layout(xaxis_title="Time", yaxis_title="Amplitude")
-        else:
-            fig = make_subplots(
-                rows=len(selected_leads),
-                cols=1,
-                shared_xaxes=False,
-                vertical_spacing=0.02,
-            )
-            for i, lead in enumerate(selected_leads):
-                idx = PTB_ORDER.index(lead)
-                fig.add_trace(
-                    go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead),
-                    row=i + 1,
-                    col=1,
-                )
-                fig.update_yaxes(title_text=lead, row=i + 1, col=1)
-            fig.update_layout(
-                xaxis_title="Time",
-                height=200 * len(selected_leads),
-                showlegend=False,
-            )
-        st.plotly_chart(fig, width="stretch")
+        render_ecg_plot(st.session_state["ecg_data"], selected_leads)
+
     order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
+
     if question_key is None:
-        st.subheader("Review your answers")
-        for key in order:
-            if key in st.session_state["answers"]:
-                st.markdown(f"**{QRS_GRAPH[key]['question']}**")
-                st.write(st.session_state["answers"][key])
-        duration_answer = st.session_state["answers"].get("Duration")
-        if duration_answer == ">120" and ">120" in st.session_state["answers"]:
-            st.markdown(f"**{QRS_GRAPH['>120']['question']}**")
-            st.write(st.session_state["answers"][">120"])
-        elif duration_answer == "110-120" and "110-120" in st.session_state["answers"]:
-            st.markdown(f"**{QRS_GRAPH['110-120']['question']}**")
-            st.write(st.session_state["answers"]["110-120"])
-        elif duration_answer == "<110" and "<110" in st.session_state["answers"]:
-            st.markdown(f"**{QRS_GRAPH['<110']['question']}**")
-            st.write(st.session_state["answers"]["<110"])
-        col_back, col_submit = st.columns(2)
-        with col_back:
-            if st.button("Back", width="stretch"):
-                st.session_state["current_question_index"] = max(0, len(order) - 1)
-                duration_answer = st.session_state["answers"].get("Duration")
-                if duration_answer in [">120", "110-120", "<110"]:
-                    last_followup = duration_answer
-                    if last_followup in st.session_state["answers"]:
-                        del st.session_state["answers"][last_followup]
-                st.rerun()
-        with col_submit:
-            if st.button("Submit", width="stretch"):
-                save_all_responses(st.session_state["answers"], st.session_state["current_filename"])
-                if st.session_state["current_filename"] not in st.session_state["completed_files"]:
-                    st.session_state["completed_files"].append(st.session_state["current_filename"])
-                st.session_state["submission_complete"] = True
-                st.rerun()
+        render_review_page()
         return
+
     question_data = QRS_GRAPH[question_key]
-    question_text = question_data["question"]
-    choices = question_data["choices"]
     st.markdown("### Question")
-    st.write(question_text)
-    if question_key in st.session_state["answers"]:
-        prev_answer = st.session_state["answers"][question_key]
-        if prev_answer in choices:
-            selected = st.radio(
-                "Your answer",
-                choices,
-                index=choices.index(prev_answer),
-                key=f"answer_{question_key}",
-            )
-        else:
-            selected = st.radio(
-                "Your answer",
-                choices,
-                key=f"answer_{question_key}",
-            )
-    else:
-        selected = st.radio(
-            "Your answer",
-            choices,
-            key=f"answer_{question_key}",
-        )
+    st.write(question_data["question"])
+
+    prev_answer = st.session_state["answers"].get(question_key)
+    default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
+    selected = st.radio(
+        "Your answer",
+        question_data["choices"],
+        index=default_index,
+        key=f"answer_{question_key}",
+    )
+
     if st.session_state["current_question_index"] > 0:
-        col_back, col_next = st.columns(2)
-        with col_back:
-            if st.button("Back", width="stretch"):
-                if question_key in [">120", "110-120", "<110"]:
-                    if "Duration" in st.session_state["answers"]:
-                        del st.session_state["answers"]["Duration"]
-                    st.session_state["current_question_index"] = order.index("Duration")
-                else:
-                    new_index = st.session_state["current_question_index"] - 1
-                    prev_question_key = order[new_index]
-                    if prev_question_key in st.session_state["answers"]:
-                        del st.session_state["answers"][prev_question_key]
-                    st.session_state["current_question_index"] = new_index
-                st.rerun()
-        with col_next:
-            if st.button("Next", width="stretch"):
-                st.session_state["answers"][question_key] = selected
-                if question_key == "Duration":
-                    for opt in [">120", "110-120", "<110"]:
-                        if opt in st.session_state["answers"]:
-                            del st.session_state["answers"][opt]
-                if question_key in order:
-                    idx = order.index(question_key)
-                    if question_key == "Duration":
-                        st.session_state["current_question_index"] = idx
-                    else:
-                        st.session_state["current_question_index"] = idx + 1
-                else:
-                    st.session_state["current_question_index"] = len(order)
-                st.rerun()
+        render_button_pair(
+            "Back", "Next", lambda: handle_back_navigation(question_key, order), lambda: handle_next_navigation(question_key, selected, order)
+        )
     else:
         if st.button("Next", width="stretch"):
-            st.session_state["answers"][question_key] = selected
-            if question_key == "Duration":
-                for opt in [">120", "110-120", "<110"]:
-                    if opt in st.session_state["answers"]:
-                        del st.session_state["answers"][opt]
-            if question_key in order:
-                idx = order.index(question_key)
-                if question_key == "Duration":
-                    st.session_state["current_question_index"] = idx
-                else:
-                    st.session_state["current_question_index"] = idx + 1
-            else:
-                st.session_state["current_question_index"] = len(order)
-            st.rerun()
+            handle_next_navigation(question_key, selected, order)
 
 
 def render_completion_page():
-    back_to_portal()
-    render_completed_files_widget()
-    st.title("Submission Complete")
+    render_page_header("Submission Complete")
     st.success("Thank you for your submission.")
     st.write("Would you like to upload another file?")
     if st.button("Upload Another File", width="stretch"):
@@ -417,6 +402,7 @@ def render_guest_page():
 def render_admin_login():
     st.title("Admin Login")
     password = st.text_input("Enter admin password", type="password")
+
     if st.button("Login"):
         try:
             admin_pw = st.secrets["ADMIN_PASSWORD"]
@@ -428,46 +414,48 @@ def render_admin_login():
             st.rerun()
         else:
             st.error("Incorrect password.")
+
     if st.button("Back to Portal"):
         st.session_state["role"] = None
         st.rerun()
 
 
-def render_admin_page():
-    st.title("Admin Panel")
-    df = load_all_users()
-    if not df.empty:
-        st.subheader("All user data")
-        st.dataframe(df, width="stretch")
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download CSV",
-            csv,
-            "responses.csv",
-            "text/csv",
-        )
-    else:
-        st.info("No responses yet.")
-    st.divider()
-    if "reset_confirmed" not in st.session_state:
-        st.session_state["reset_confirmed"] = False
-    if st.session_state["reset_confirmed"]:
+def render_reset_button():
+    if st.session_state.get("reset_confirmed"):
         st.warning("⚠️ Are you sure you want to delete ALL data? This cannot be undone.")
-        col_confirm, col_cancel = st.columns(2)
-        with col_confirm:
-            if st.button("Confirm Reset", type="primary", width="stretch"):
-                reset_database()
-                st.session_state["reset_confirmed"] = False
-                st.success("Database reset successfully.")
-                st.rerun()
-        with col_cancel:
-            if st.button("Cancel", width="stretch"):
-                st.session_state["reset_confirmed"] = False
-                st.rerun()
+
+        def cancel():
+            st.session_state["reset_confirmed"] = False
+            st.rerun()
+
+        def confirm():
+            reset_database()
+            st.session_state["reset_confirmed"] = False
+            st.success("Database reset successfully.")
+            st.rerun()
+
+        render_button_pair("Cancel", "Confirm Reset", cancel, confirm)
     else:
         if st.button("Reset Database", type="secondary", width="stretch"):
             st.session_state["reset_confirmed"] = True
             st.rerun()
+
+
+def render_admin_page():
+    st.title("Admin Panel")
+    df = load_all_users()
+
+    if not df.empty:
+        st.subheader("All user data")
+        st.dataframe(df, width="stretch")
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("Download CSV", csv, "responses.csv", "text/csv")
+    else:
+        st.info("No responses yet.")
+
+    st.divider()
+    render_reset_button()
+
     if st.button("Back to Portal"):
         st.session_state["role"] = None
         st.session_state["reset_confirmed"] = False
