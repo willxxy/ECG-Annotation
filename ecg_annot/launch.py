@@ -21,6 +21,7 @@ st.set_page_config(
 )
 
 DURATION_FOLLOWUPS = [">120", "110-120", "<110"]
+QUESTION_ORDER = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
 
 
 def init_session_state():
@@ -53,20 +54,15 @@ def get_sheets_client():
 
 
 def get_worksheet():
-    client = get_sheets_client()
-    sheet = client.open_by_key(st.secrets["SHEET_ID"])
-    return sheet.sheet1
+    return get_sheets_client().open_by_key(st.secrets["SHEET_ID"]).sheet1
 
 
 def clean_duration_answers(answers):
     clean = dict(answers)
     duration = clean.get("Duration")
-    if duration in DURATION_FOLLOWUPS:
-        for opt in DURATION_FOLLOWUPS:
-            if opt != duration:
-                clean.pop(opt, None)
-    else:
-        for opt in DURATION_FOLLOWUPS:
+    keep = [duration] if duration in DURATION_FOLLOWUPS else []
+    for opt in DURATION_FOLLOWUPS:
+        if opt not in keep:
             clean.pop(opt, None)
     return clean
 
@@ -75,43 +71,26 @@ def save_all_responses(answers: dict, filename: str | None):
     clean_answers = clean_duration_answers(answers)
     user_id = st.session_state["user_id"]
     ws = get_worksheet()
-
     all_data = ws.get_all_records()
-    existing_row = None
-    for i, row in enumerate(all_data):
-        if row.get("user_id") == user_id:
-            existing_row = i + 2
-            break
-
+    existing_row = next((i + 2 for i, row in enumerate(all_data) if row.get("user_id") == user_id), None)
     current_data = json.loads(all_data[existing_row - 2].get("data", "{}")) if existing_row else {}
-
     file_data = {QRS_GRAPH[key]["question"]: answer for key, answer in clean_answers.items()}
     file_data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-
     current_data[filename] = file_data
     data_str = json.dumps(current_data)
-
     if existing_row:
         ws.update_cell(existing_row, 3, data_str)
     else:
         ws.append_row([user_id, datetime.utcnow().isoformat(timespec="seconds"), data_str])
 
 
-def get_question_order():
-    return ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
-
-
 def get_next_question_key(current_index, answers):
-    order = get_question_order()
-    for i in range(current_index, len(order)):
-        key = order[i]
+    for i in range(current_index, len(QUESTION_ORDER)):
+        key = QUESTION_ORDER[i]
         if key not in answers:
             return key
-        if key == "Duration":
-            duration_answer = answers[key]
-            if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
-                return duration_answer
-
+        if key == "Duration" and answers[key] in DURATION_FOLLOWUPS and answers[key] not in answers:
+            return answers[key]
     duration_answer = answers.get("Duration")
     if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
         return duration_answer
@@ -183,24 +162,15 @@ st.markdown(
 
 def back_to_portal():
     if st.button("Back to Portal"):
-        st.session_state["role"] = None
+        st.session_state.update({"role": None, "completed_files": []})
         reset_session_for_new_file()
-        st.session_state["completed_files"] = []
         st.rerun()
 
 
 def render_completed_files_widget():
     if st.session_state["completed_files"]:
         files_html = "<br>".join([f"✓ {f}" for f in st.session_state["completed_files"]])
-        st.markdown(
-            f"""
-            <div class="completed-files">
-                <strong>Completed:</strong><br>
-                {files_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown(f'<div class="completed-files"><strong>Completed:</strong><br>{files_html}</div>', unsafe_allow_html=True)
 
 
 def render_page_header(title, subtitle=None):
@@ -236,33 +206,18 @@ def render_lead_selection(ecg_data):
 
 def render_ecg_plot(ecg_data, selected_leads):
     time_axis = np.arange(ecg_data.shape[1])
-
     if len(selected_leads) == 1:
-        lead = selected_leads[0]
-        idx = PTB_ORDER.index(lead)
+        idx = PTB_ORDER.index(selected_leads[0])
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead))
+        fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=selected_leads[0]))
         fig.update_layout(xaxis_title="Time", yaxis_title="Amplitude")
     else:
-        fig = make_subplots(
-            rows=len(selected_leads),
-            cols=1,
-            shared_xaxes=False,
-            vertical_spacing=0.02,
-        )
+        fig = make_subplots(rows=len(selected_leads), cols=1, shared_xaxes=False, vertical_spacing=0.02)
         for i, lead in enumerate(selected_leads):
             idx = PTB_ORDER.index(lead)
-            fig.add_trace(
-                go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead),
-                row=i + 1,
-                col=1,
-            )
+            fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead), row=i + 1, col=1)
             fig.update_yaxes(title_text=lead, row=i + 1, col=1)
-        fig.update_layout(
-            xaxis_title="Time",
-            height=200 * len(selected_leads),
-            showlegend=False,
-        )
+        fig.update_layout(xaxis_title="Time", height=200 * len(selected_leads), showlegend=False)
     st.plotly_chart(fig, width="stretch")
 
 
@@ -288,97 +243,82 @@ def render_file_upload_page():
 
 
 def render_review_page():
-    order = get_question_order()
     st.subheader("Review your answers")
-
-    for key in order:
-        if key in st.session_state["answers"]:
+    answers = st.session_state["answers"]
+    for key in QUESTION_ORDER:
+        if key in answers:
             st.markdown(f"**{QRS_GRAPH[key]['question']}**")
-            st.write(st.session_state["answers"][key])
-
-    duration_answer = st.session_state["answers"].get("Duration")
-    if duration_answer in DURATION_FOLLOWUPS and duration_answer in st.session_state["answers"]:
+            st.write(answers[key])
+    duration_answer = answers.get("Duration")
+    if duration_answer in DURATION_FOLLOWUPS and duration_answer in answers:
         st.markdown(f"**{QRS_GRAPH[duration_answer]['question']}**")
-        st.write(st.session_state["answers"][duration_answer])
+        st.write(answers[duration_answer])
 
     def go_back():
-        st.session_state["current_question_index"] = max(0, len(order) - 1)
-        duration_answer = st.session_state["answers"].get("Duration")
-        if duration_answer in DURATION_FOLLOWUPS:
-            st.session_state["answers"].pop(duration_answer, None)
+        st.session_state["current_question_index"] = max(0, len(QUESTION_ORDER) - 1)
+        if answers.get("Duration") in DURATION_FOLLOWUPS:
+            answers.pop("Duration", None)
         st.rerun()
 
     def submit():
-        save_all_responses(st.session_state["answers"], st.session_state["current_filename"])
-        if st.session_state["current_filename"] not in st.session_state["completed_files"]:
-            st.session_state["completed_files"].append(st.session_state["current_filename"])
+        save_all_responses(answers, st.session_state["current_filename"])
+        filename = st.session_state["current_filename"]
+        if filename not in st.session_state["completed_files"]:
+            st.session_state["completed_files"].append(filename)
         st.session_state["submission_complete"] = True
         st.rerun()
 
     render_button_pair("Back", "Submit", go_back, submit)
 
 
-def handle_back_navigation(question_key, order):
+def handle_back_navigation(question_key):
+    answers = st.session_state["answers"]
     if question_key in DURATION_FOLLOWUPS:
-        st.session_state["answers"].pop("Duration", None)
-        st.session_state["current_question_index"] = order.index("Duration")
+        answers.pop("Duration", None)
+        st.session_state["current_question_index"] = QUESTION_ORDER.index("Duration")
     else:
         new_index = st.session_state["current_question_index"] - 1
-        prev_question_key = order[new_index]
-        st.session_state["answers"].pop(prev_question_key, None)
+        answers.pop(QUESTION_ORDER[new_index], None)
         st.session_state["current_question_index"] = new_index
     st.rerun()
 
 
-def handle_next_navigation(question_key, selected, order):
-    st.session_state["answers"][question_key] = selected
+def handle_next_navigation(question_key, selected):
+    answers = st.session_state["answers"]
+    answers[question_key] = selected
     if question_key == "Duration":
         for opt in DURATION_FOLLOWUPS:
-            st.session_state["answers"].pop(opt, None)
-
-    if question_key in order:
-        idx = order.index(question_key)
+            answers.pop(opt, None)
+    if question_key in QUESTION_ORDER:
+        idx = QUESTION_ORDER.index(question_key)
         st.session_state["current_question_index"] = idx if question_key == "Duration" else idx + 1
     else:
-        st.session_state["current_question_index"] = len(order)
+        st.session_state["current_question_index"] = len(QUESTION_ORDER)
     st.rerun()
 
 
 def render_questions_page():
     render_page_header("ECG Annotation")
-
-    if st.session_state["ecg_data"] is not None:
-        selected_leads = render_lead_selection(st.session_state["ecg_data"])
+    ecg_data = st.session_state["ecg_data"]
+    if ecg_data is not None:
+        selected_leads = render_lead_selection(ecg_data)
         st.session_state["selected_leads"] = selected_leads
-        render_ecg_plot(st.session_state["ecg_data"], selected_leads)
-
-    order = get_question_order()
+        render_ecg_plot(ecg_data, selected_leads)
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
-
     if question_key is None:
         render_review_page()
         return
-
     question_data = QRS_GRAPH[question_key]
     st.markdown("### Question")
     st.write(question_data["question"])
-
     prev_answer = st.session_state["answers"].get(question_key)
     default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
-    selected = st.radio(
-        "Your answer",
-        question_data["choices"],
-        index=default_index,
-        key=f"answer_{question_key}",
-    )
-
+    selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
     if st.session_state["current_question_index"] > 0:
-        render_button_pair(
-            "Back", "Next", lambda: handle_back_navigation(question_key, order), lambda: handle_next_navigation(question_key, selected, order)
-        )
+        render_button_pair("Back", "Next", lambda: handle_back_navigation(question_key), lambda: handle_next_navigation(question_key, selected))
     else:
         if st.button("Next", width="stretch"):
-            handle_next_navigation(question_key, selected, order)
+            handle_next_navigation(question_key, selected)
 
 
 def render_completion_page():
@@ -402,19 +342,15 @@ def render_guest_page():
 def render_admin_login():
     st.title("Admin Login")
     password = st.text_input("Enter admin password", type="password")
-
     if st.button("Login"):
         try:
-            admin_pw = st.secrets["ADMIN_PASSWORD"]
+            if password == st.secrets["ADMIN_PASSWORD"]:
+                st.session_state["role"] = "admin"
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
         except Exception:
             st.error("ADMIN_PASSWORD not set in secrets.")
-            return
-        if password == admin_pw:
-            st.session_state["role"] = "admin"
-            st.rerun()
-        else:
-            st.error("Incorrect password.")
-
     if st.button("Back to Portal"):
         st.session_state["role"] = None
         st.rerun()
@@ -444,21 +380,16 @@ def render_reset_button():
 def render_admin_page():
     st.title("Admin Panel")
     df = load_all_users()
-
     if not df.empty:
         st.subheader("All user data")
         st.dataframe(df, width="stretch")
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV", csv, "responses.csv", "text/csv")
+        st.download_button("Download CSV", df.to_csv(index=False).encode("utf-8"), "responses.csv", "text/csv")
     else:
         st.info("No responses yet.")
-
     st.divider()
     render_reset_button()
-
     if st.button("Back to Portal"):
-        st.session_state["role"] = None
-        st.session_state["reset_confirmed"] = False
+        st.session_state.update({"role": None, "reset_confirmed": False})
         st.rerun()
 
 
@@ -476,12 +407,10 @@ def render_landing():
             st.rerun()
 
 
-role = st.session_state["role"]
-if role is None:
-    render_landing()
-elif role == "guest":
-    render_guest_page()
-elif role == "admin_login":
-    render_admin_login()
-elif role == "admin":
-    render_admin_page()
+ROUTERS = {
+    None: render_landing,
+    "guest": render_guest_page,
+    "admin_login": render_admin_login,
+    "admin": render_admin_page,
+}
+ROUTERS[st.session_state["role"]]()
