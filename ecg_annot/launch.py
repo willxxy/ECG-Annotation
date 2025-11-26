@@ -143,7 +143,7 @@ st.markdown(
         max-width: 600px;
         margin: 0 auto;
         padding-top: 4rem;
-        padding-bottom: 4rem;
+        padding-bottom: 8rem;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
     }
     .stButton>button {
@@ -155,6 +155,25 @@ st.markdown(
         margin-top: 1.5rem;
     }
     .button-row > div {
+        flex: 1;
+    }
+    .fixed-buttons {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        padding: 1rem;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        z-index: 999;
+    }
+    .fixed-buttons .button-container {
+        max-width: 600px;
+        margin: 0 auto;
+        display: flex;
+        gap: 0.5rem;
+    }
+    .fixed-buttons .button-container > div {
         flex: 1;
     }
     </style>
@@ -250,6 +269,7 @@ def render_guest_page():
         elif duration_answer == "<110" and "<110" in st.session_state["answers"]:
             st.markdown(f"**{QRS_GRAPH['<110']['question']}**")
             st.write(st.session_state["answers"]["<110"])
+        st.markdown('<div class="fixed-buttons"><div class="button-container">', unsafe_allow_html=True)
         col_back, col_submit = st.columns(2)
         with col_back:
             if st.button("Back", use_container_width=True):
@@ -264,6 +284,7 @@ def render_guest_page():
             if st.button("Submit", use_container_width=True):
                 save_all_responses(st.session_state["answers"], filename)
                 st.success("Thank you for your submission.")
+        st.markdown("</div></div>", unsafe_allow_html=True)
         return
     question_data = QRS_GRAPH[question_key]
     question_text = question_data["question"]
@@ -291,9 +312,10 @@ def render_guest_page():
             choices,
             key=f"answer_{question_key}",
         )
-    col_back, col_next = st.columns(2)
-    with col_back:
-        if st.session_state["current_question_index"] > 0:
+    st.markdown('<div class="fixed-buttons"><div class="button-container">', unsafe_allow_html=True)
+    if st.session_state["current_question_index"] > 0:
+        col_back, col_next = st.columns(2)
+        with col_back:
             if st.button("Back", use_container_width=True):
                 if question_key in [">120", "110-120", "<110"]:
                     if "Duration" in st.session_state["answers"]:
@@ -306,9 +328,23 @@ def render_guest_page():
                         del st.session_state["answers"][prev_question_key]
                     st.session_state["current_question_index"] = new_index
                 st.rerun()
-        else:
-            st.button("Back", disabled=True, use_container_width=True)
-    with col_next:
+        with col_next:
+            if st.button("Next", use_container_width=True):
+                st.session_state["answers"][question_key] = selected
+                if question_key == "Duration":
+                    for opt in [">120", "110-120", "<110"]:
+                        if opt in st.session_state["answers"]:
+                            del st.session_state["answers"][opt]
+                if question_key in order:
+                    idx = order.index(question_key)
+                    if question_key == "Duration":
+                        st.session_state["current_question_index"] = idx
+                    else:
+                        st.session_state["current_question_index"] = idx + 1
+                else:
+                    st.session_state["current_question_index"] = len(order)
+                st.rerun()
+    else:
         if st.button("Next", use_container_width=True):
             st.session_state["answers"][question_key] = selected
             if question_key == "Duration":
@@ -324,6 +360,7 @@ def render_guest_page():
             else:
                 st.session_state["current_question_index"] = len(order)
             st.rerun()
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 
 def render_admin_login():
