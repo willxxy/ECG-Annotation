@@ -31,14 +31,12 @@ if "ecg_data" not in st.session_state:
     st.session_state["ecg_data"] = None
 if "selected_leads" not in st.session_state:
     st.session_state["selected_leads"] = [PTB_ORDER[1]]
-if "file_uploaded" not in st.session_state:
-    st.session_state["file_uploaded"] = False
+if "guest_step" not in st.session_state:
+    st.session_state["guest_step"] = "upload"
+if "processed_files" not in st.session_state:
+    st.session_state["processed_files"] = []
 if "current_filename" not in st.session_state:
     st.session_state["current_filename"] = None
-if "completed_files" not in st.session_state:
-    st.session_state["completed_files"] = []
-if "submission_complete" not in st.session_state:
-    st.session_state["submission_complete"] = False
 
 
 @st.cache_resource
@@ -69,30 +67,30 @@ def save_all_responses(answers: dict, filename: str | None):
         for opt in followups:
             if opt in clean_answers:
                 del clean_answers[opt]
-
     conn = get_connection()
     user_id = st.session_state["user_id"]
     cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
-
     if row is None or row[0] is None:
         payload = {}
     else:
         payload = json.loads(row[0])
-
-    file_data = {}
     for key, answer in clean_answers.items():
         question_text = QRS_GRAPH[key]["question"]
-        file_data[question_text] = answer
-    file_data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-
-    payload[filename] = file_data
+        payload[question_text] = {
+            "answer": answer,
+            "filename": filename,
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        }
     data_str = json.dumps(payload)
-
     if row is None:
         conn.execute(
             "INSERT INTO users (user_id, created_at, data) VALUES (?, ?, ?)",
-            (user_id, datetime.utcnow().isoformat(timespec="seconds"), data_str),
+            (
+                user_id,
+                datetime.utcnow().isoformat(timespec="seconds"),
+                data_str,
+            ),
         )
     else:
         conn.execute(
@@ -144,16 +142,6 @@ def reset_database():
     get_connection.clear()
 
 
-def reset_session_for_new_file():
-    st.session_state["current_question_index"] = 0
-    st.session_state["answers"] = {}
-    st.session_state["ecg_data"] = None
-    st.session_state["selected_leads"] = [PTB_ORDER[1]]
-    st.session_state["file_uploaded"] = False
-    st.session_state["current_filename"] = None
-    st.session_state["submission_complete"] = False
-
-
 st.markdown(
     """
     <style>
@@ -178,16 +166,6 @@ st.markdown(
     div[data-testid="stRadio"] > div {
         min-height: 120px;
     }
-    .completed-files {
-        position: fixed;
-        right: 20px;
-        top: 80px;
-        background: #f0f2f6;
-        padding: 10px;
-        border-radius: 8px;
-        max-width: 200px;
-        font-size: 12px;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -197,97 +175,95 @@ st.markdown(
 def back_to_portal():
     if st.button("Back to Portal"):
         st.session_state["role"] = None
-        reset_session_for_new_file()
-        st.session_state["completed_files"] = []
+        st.session_state["current_question_index"] = 0
+        st.session_state["answers"] = {}
+        st.session_state["ecg_data"] = None
+        st.session_state["selected_leads"] = [PTB_ORDER[1]]
+        st.session_state["guest_step"] = "upload"
+        st.session_state["current_filename"] = None
+        st.session_state["processed_files"] = []
         st.rerun()
 
 
-def render_completed_files_widget():
-    if st.session_state["completed_files"]:
-        files_html = "<br>".join([f"✓ {f}" for f in st.session_state["completed_files"]])
-        st.markdown(
-            f"""
-            <div class="completed-files">
-                <strong>Completed:</strong><br>
-                {files_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-def render_file_upload_page():
+def render_guest_page():
     back_to_portal()
-    render_completed_files_widget()
-    st.title("ECG Annotation")
-    st.subheader("Upload ECG File")
-    uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
-    if uploaded_file is None:
-        return
-    filename = uploaded_file.name
-    if filename and filename.endswith(".xml"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_path = tmp_file.name
-        try:
-            st.session_state["ecg_data"] = load_ecg_signals_only(tmp_path)
-            st.session_state["current_filename"] = filename
-            st.session_state["file_uploaded"] = True
-        finally:
-            os.unlink(tmp_path)
-        if st.button("Start Annotation", width="stretch"):
-            st.rerun()
-
-
-def render_questions_page():
-    back_to_portal()
-    render_completed_files_widget()
-    st.title("ECG Annotation")
-    if st.session_state["current_filename"]:
-        st.caption(f"File: {st.session_state['current_filename']}")
-    if st.session_state["ecg_data"] is not None:
-        ecg_data = st.session_state["ecg_data"]
-        cols = st.columns(6)
-        selected_leads = []
-        for i, lead in enumerate(PTB_ORDER):
-            col = cols[i % len(cols)]
-            key = f"lead_{lead}"
-            if key not in st.session_state:
-                st.session_state[key] = lead in st.session_state["selected_leads"]
-            val = col.checkbox(lead, key=key)
-            if val:
-                selected_leads.append(lead)
-        if not selected_leads:
-            selected_leads = [PTB_ORDER[1]]
-        st.session_state["selected_leads"] = selected_leads
-        time_axis = np.arange(ecg_data.shape[1])
-        if len(selected_leads) == 1:
-            lead = selected_leads[0]
-            idx = PTB_ORDER.index(lead)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead))
-            fig.update_layout(xaxis_title="Time", yaxis_title="Amplitude")
+    if st.session_state["processed_files"]:
+        with st.sidebar:
+            st.subheader("Analyzed files")
+            for f in st.session_state["processed_files"]:
+                st.write(f)
+    step = st.session_state["guest_step"]
+    if step in ("upload", "done"):
+        if step == "upload":
+            st.title("ECG Annotation")
         else:
-            fig = make_subplots(
-                rows=len(selected_leads),
-                cols=1,
-                shared_xaxes=False,
-                vertical_spacing=0.02,
+            st.title("Submission complete")
+            st.write("Do you want to upload another file?")
+        uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False, key="upload_file")
+        if uploaded_file is None:
+            return
+        filename = uploaded_file.name
+        st.session_state["current_filename"] = filename
+        if filename.endswith(".xml"):
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_path = tmp_file.name
+            try:
+                st.session_state["ecg_data"] = load_ecg_signals_only(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+            st.session_state["selected_leads"] = [PTB_ORDER[1]]
+            st.session_state["current_question_index"] = 0
+            st.session_state["answers"] = {}
+            st.session_state["guest_step"] = "questions"
+            st.rerun()
+        return
+    st.title("ECG Annotation")
+    ecg_data = st.session_state["ecg_data"]
+    if ecg_data is None:
+        st.session_state["guest_step"] = "upload"
+        st.rerun()
+    cols = st.columns(6)
+    selected_leads = []
+    for i, lead in enumerate(PTB_ORDER):
+        col = cols[i % len(cols)]
+        key = f"lead_{lead}"
+        if key not in st.session_state:
+            st.session_state[key] = lead in st.session_state["selected_leads"]
+        val = col.checkbox(lead, key=key)
+        if val:
+            selected_leads.append(lead)
+    if not selected_leads:
+        selected_leads = [PTB_ORDER[1]]
+    st.session_state["selected_leads"] = selected_leads
+    time_axis = np.arange(ecg_data.shape[1])
+    if len(selected_leads) == 1:
+        lead = selected_leads[0]
+        idx = PTB_ORDER.index(lead)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead))
+        fig.update_layout(xaxis_title="Time", yaxis_title="Amplitude")
+    else:
+        fig = make_subplots(
+            rows=len(selected_leads),
+            cols=1,
+            shared_xaxes=False,
+            vertical_spacing=0.02,
+        )
+        for i, lead in enumerate(selected_leads):
+            idx = PTB_ORDER.index(lead)
+            fig.add_trace(
+                go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead),
+                row=i + 1,
+                col=1,
             )
-            for i, lead in enumerate(selected_leads):
-                idx = PTB_ORDER.index(lead)
-                fig.add_trace(
-                    go.Scatter(x=time_axis, y=ecg_data[idx], mode="lines", name=lead),
-                    row=i + 1,
-                    col=1,
-                )
-                fig.update_yaxes(title_text=lead, row=i + 1, col=1)
-            fig.update_layout(
-                xaxis_title="Time",
-                height=200 * len(selected_leads),
-                showlegend=False,
-            )
-        st.plotly_chart(fig, width="stretch")
+            fig.update_yaxes(title_text=lead, row=i + 1, col=1)
+        fig.update_layout(
+            xaxis_title="Time",
+            height=200 * len(selected_leads),
+            showlegend=False,
+        )
+    st.plotly_chart(fig, use_container_width=True)
     order = get_question_order()
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
     if question_key is None:
@@ -308,7 +284,7 @@ def render_questions_page():
             st.write(st.session_state["answers"]["<110"])
         col_back, col_submit = st.columns(2)
         with col_back:
-            if st.button("Back", width="stretch"):
+            if st.button("Back", key="review_back"):
                 st.session_state["current_question_index"] = max(0, len(order) - 1)
                 duration_answer = st.session_state["answers"].get("Duration")
                 if duration_answer in [">120", "110-120", "<110"]:
@@ -317,11 +293,17 @@ def render_questions_page():
                         del st.session_state["answers"][last_followup]
                 st.rerun()
         with col_submit:
-            if st.button("Submit", width="stretch"):
-                save_all_responses(st.session_state["answers"], st.session_state["current_filename"])
-                if st.session_state["current_filename"] not in st.session_state["completed_files"]:
-                    st.session_state["completed_files"].append(st.session_state["current_filename"])
-                st.session_state["submission_complete"] = True
+            if st.button("Submit", key="review_submit"):
+                save_all_responses(st.session_state["answers"], st.session_state.get("current_filename"))
+                f = st.session_state.get("current_filename")
+                if f and f not in st.session_state["processed_files"]:
+                    st.session_state["processed_files"].append(f)
+                st.session_state["guest_step"] = "done"
+                st.session_state["current_question_index"] = 0
+                st.session_state["answers"] = {}
+                st.session_state["ecg_data"] = None
+                st.session_state["selected_leads"] = [PTB_ORDER[1]]
+                st.session_state["current_filename"] = None
                 st.rerun()
         return
     question_data = QRS_GRAPH[question_key]
@@ -353,7 +335,7 @@ def render_questions_page():
     if st.session_state["current_question_index"] > 0:
         col_back, col_next = st.columns(2)
         with col_back:
-            if st.button("Back", width="stretch"):
+            if st.button("Back", key=f"back_{question_key}"):
                 if question_key in [">120", "110-120", "<110"]:
                     if "Duration" in st.session_state["answers"]:
                         del st.session_state["answers"]["Duration"]
@@ -366,7 +348,7 @@ def render_questions_page():
                     st.session_state["current_question_index"] = new_index
                 st.rerun()
         with col_next:
-            if st.button("Next", width="stretch"):
+            if st.button("Next", key=f"next_{question_key}"):
                 st.session_state["answers"][question_key] = selected
                 if question_key == "Duration":
                     for opt in [">120", "110-120", "<110"]:
@@ -382,7 +364,7 @@ def render_questions_page():
                     st.session_state["current_question_index"] = len(order)
                 st.rerun()
     else:
-        if st.button("Next", width="stretch"):
+        if st.button("Next", key=f"next_{question_key}"):
             st.session_state["answers"][question_key] = selected
             if question_key == "Duration":
                 for opt in [">120", "110-120", "<110"]:
@@ -399,26 +381,6 @@ def render_questions_page():
             st.rerun()
 
 
-def render_completion_page():
-    back_to_portal()
-    render_completed_files_widget()
-    st.title("Submission Complete")
-    st.success("Thank you for your submission.")
-    st.write("Would you like to upload another file?")
-    if st.button("Upload Another File", width="stretch"):
-        reset_session_for_new_file()
-        st.rerun()
-
-
-def render_guest_page():
-    if st.session_state["submission_complete"]:
-        render_completion_page()
-    elif not st.session_state["file_uploaded"]:
-        render_file_upload_page()
-    else:
-        render_questions_page()
-
-
 def render_admin_login():
     st.title("Admin Login")
     password = st.text_input("Enter admin password", type="password")
@@ -433,7 +395,7 @@ def render_admin_login():
             st.rerun()
         else:
             st.error("Incorrect password.")
-    if st.button("Back to Portal"):
+    if st.button("Back to Portal", key="admin_back"):
         st.session_state["role"] = None
         st.rerun()
 
@@ -443,7 +405,7 @@ def render_admin_page():
     df = load_all_users()
     if not df.empty:
         st.subheader("All user data")
-        st.dataframe(df, width="stretch")
+        st.dataframe(df, use_container_width=True)
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "Download CSV",
@@ -460,20 +422,20 @@ def render_admin_page():
         st.warning("⚠️ Are you sure you want to delete ALL data? This cannot be undone.")
         col_confirm, col_cancel = st.columns(2)
         with col_confirm:
-            if st.button("Confirm Reset", type="primary", width="stretch"):
+            if st.button("Confirm Reset", type="primary", key="confirm_reset"):
                 reset_database()
                 st.session_state["reset_confirmed"] = False
                 st.success("Database reset successfully.")
                 st.rerun()
         with col_cancel:
-            if st.button("Cancel", width="stretch"):
+            if st.button("Cancel", key="cancel_reset"):
                 st.session_state["reset_confirmed"] = False
                 st.rerun()
     else:
-        if st.button("Reset Database", type="secondary", width="stretch"):
+        if st.button("Reset Database", type="secondary", key="reset_db"):
             st.session_state["reset_confirmed"] = True
             st.rerun()
-    if st.button("Back to Portal"):
+    if st.button("Back to Portal", key="admin_portal_back"):
         st.session_state["role"] = None
         st.session_state["reset_confirmed"] = False
         st.rerun()
@@ -486,6 +448,13 @@ def render_landing():
     with col1:
         if st.button("Guest"):
             st.session_state["role"] = "guest"
+            st.session_state["guest_step"] = "upload"
+            st.session_state["current_question_index"] = 0
+            st.session_state["answers"] = {}
+            st.session_state["ecg_data"] = None
+            st.session_state["selected_leads"] = [PTB_ORDER[1]]
+            st.session_state["current_filename"] = None
+            st.session_state["processed_files"] = []
             st.rerun()
     with col2:
         if st.button("Admin"):
