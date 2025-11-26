@@ -269,30 +269,24 @@ def render_guest_page():
     question_text = question_data["question"]
     choices = question_data["choices"]
     st.markdown("### Question")
-    st.text_area(
-        "",
-        question_text,
-        height=120,
-        key=f"question_box_{question_key}",
-        disabled=True,
-    )
+    st.write(question_text)
     if question_key in st.session_state["answers"]:
         prev_answer = st.session_state["answers"][question_key]
         if prev_answer in choices:
-            selected = st.selectbox(
+            selected = st.radio(
                 "Your answer",
                 choices,
                 index=choices.index(prev_answer),
                 key=f"answer_{question_key}",
             )
         else:
-            selected = st.selectbox(
+            selected = st.radio(
                 "Your answer",
                 choices,
                 key=f"answer_{question_key}",
             )
     else:
-        selected = st.selectbox(
+        selected = st.radio(
             "Your answer",
             choices,
             key=f"answer_{question_key}",
