@@ -11,7 +11,9 @@ dependencies = [
     "streamlit==1.51.0",
     "pandas",
     "numpy",
-    "plotly"
+    "plotly",
+    "gspread",
+    "google-auth"
 ]
 
 [tool.ruff.lint]

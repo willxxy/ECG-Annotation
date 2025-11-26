@@ -26,6 +26,8 @@ INSTALL_REQUIRES = [
     "pytest",
     "streamlit==1.51.0",
     "plotly",
+    "gspread",
+    "google-auth",
 ]
 
 setup(

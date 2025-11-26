@@ -1,5 +1,4 @@
 import streamlit as st
-import sqlite3
 from datetime import datetime
 import uuid
 import json
@@ -11,6 +10,8 @@ from ecg_annot.configs.annotation import QRS_GRAPH
 from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only, PTB_ORDER
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(
     page_title="Minimal Q&A",
@@ -42,19 +43,16 @@ if "submission_complete" not in st.session_state:
 
 
 @st.cache_resource
-def get_connection():
-    conn = sqlite3.connect("responses.db", check_same_thread=False)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            created_at TEXT,
-            data TEXT
-        )
-        """
-    )
-    conn.commit()
-    return conn
+def get_sheets_client():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    return gspread.authorize(creds)
+
+
+def get_worksheet():
+    client = get_sheets_client()
+    sheet = client.open_by_key(st.secrets["SHEET_ID"])
+    return sheet.sheet1
 
 
 def save_all_responses(answers: dict, filename: str | None):
@@ -69,37 +67,35 @@ def save_all_responses(answers: dict, filename: str | None):
         for opt in followups:
             if opt in clean_answers:
                 del clean_answers[opt]
-    conn = get_connection()
+
     user_id = st.session_state["user_id"]
-    cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id,))
-    row = cur.fetchone()
-    if row is None or row[0] is None:
-        payload = {}
+    ws = get_worksheet()
+
+    all_data = ws.get_all_records()
+    existing_row = None
+    for i, row in enumerate(all_data):
+        if row.get("user_id") == user_id:
+            existing_row = i + 2
+            break
+
+    if existing_row:
+        current_data = json.loads(all_data[existing_row - 2].get("data", "{}"))
     else:
-        payload = json.loads(row[0])
+        current_data = {}
+
+    file_data = {}
     for key, answer in clean_answers.items():
         question_text = QRS_GRAPH[key]["question"]
-        payload[question_text] = {
-            "answer": answer,
-            "filename": filename,
-            "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
-        }
-    data_str = json.dumps(payload)
-    if row is None:
-        conn.execute(
-            "INSERT INTO users (user_id, created_at, data) VALUES (?, ?, ?)",
-            (
-                user_id,
-                datetime.utcnow().isoformat(timespec="seconds"),
-                data_str,
-            ),
-        )
+        file_data[question_text] = answer
+    file_data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+
+    current_data[filename] = file_data
+    data_str = json.dumps(current_data)
+
+    if existing_row:
+        ws.update_cell(existing_row, 3, data_str)
     else:
-        conn.execute(
-            "UPDATE users SET data = ? WHERE user_id = ?",
-            (data_str, user_id),
-        )
-    conn.commit()
+        ws.append_row([user_id, datetime.utcnow().isoformat(timespec="seconds"), data_str])
 
 
 def get_question_order():
@@ -132,16 +128,15 @@ def get_next_question_key(current_index, answers):
 
 
 def load_all_users():
-    conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM users", conn)
-    return df
+    ws = get_worksheet()
+    return pd.DataFrame(ws.get_all_records())
 
 
 def reset_database():
-    conn = get_connection()
-    conn.execute("DELETE FROM users")
-    conn.commit()
-    get_connection.clear()
+    ws = get_worksheet()
+    ws.clear()
+    ws.append_row(["user_id", "created_at", "data"])
+    get_sheets_client.clear()
 
 
 def reset_session_for_new_file():
