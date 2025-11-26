@@ -28,6 +28,7 @@ INSTALL_REQUIRES = [
     "plotly",
     "gspread",
     "google-auth",
+    "streamlit-plotly-events",
 ]
 
 setup(

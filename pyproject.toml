@@ -13,7 +13,8 @@ dependencies = [
     "numpy",
     "plotly",
     "gspread",
-    "google-auth"
+    "google-auth",
+    "streamlit-plotly-events"
 ]
 
 [tool.ruff.lint]
