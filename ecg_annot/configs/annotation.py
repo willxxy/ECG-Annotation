@@ -76,6 +76,27 @@ QRS_GRAPH = {
     },
 }
 
+NOISE_ARTIFACTS_GRAPH = {
+    "Noise artifacts": {
+        "question": "What kind of noise artifacts are present?",
+        "choices": [
+            "Missing",
+            "LVAD",
+            "Noise",
+        ],
+    },
+}
+
+ALL_QUESTIONS_GRAPH = {**QRS_GRAPH, **NOISE_ARTIFACTS_GRAPH}
+
+QRS_QUESTION_ORDER = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
+NOISE_ARTIFACTS_QUESTION_ORDER = ["Noise artifacts"]
+ALL_QUESTION_ORDER = QRS_QUESTION_ORDER + NOISE_ARTIFACTS_QUESTION_ORDER
+
+SECTIONS = [
+    ("QRS", QRS_GRAPH),
+    ("Noise Artifacts", NOISE_ARTIFACTS_GRAPH),
+]
 
 if __name__ == "__main__":
-    print(QRS_GRAPH)
+    print(SECTIONS)

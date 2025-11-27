@@ -6,7 +6,12 @@ import pandas as pd
 import numpy as np
 import tempfile
 import os
-from ecg_annot.configs.annotation import QRS_GRAPH
+from ecg_annot.configs.annotation import (
+    ALL_QUESTIONS_GRAPH,
+    QRS_QUESTION_ORDER,
+    NOISE_ARTIFACTS_QUESTION_ORDER,
+    ALL_QUESTION_ORDER,
+)
 from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only, PTB_ORDER
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -21,7 +26,6 @@ st.set_page_config(
 )
 
 DURATION_FOLLOWUPS = [">120", "110-120", "<110"]
-QUESTION_ORDER = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
 
 
 def init_session_state():
@@ -74,7 +78,7 @@ def save_all_responses(answers: dict, filename: str | None):
     all_data = ws.get_all_records()
     existing_row = next((i + 2 for i, row in enumerate(all_data) if row.get("user_id") == user_id), None)
     current_data = json.loads(all_data[existing_row - 2].get("data", "{}")) if existing_row else {}
-    file_data = {QRS_GRAPH[key]["question"]: answer for key, answer in clean_answers.items()}
+    file_data = {ALL_QUESTIONS_GRAPH[key]["question"]: answer for key, answer in clean_answers.items()}
     file_data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
     current_data[filename] = file_data
     data_str = json.dumps(current_data)
@@ -84,28 +88,56 @@ def save_all_responses(answers: dict, filename: str | None):
         ws.append_row([user_id, datetime.utcnow().isoformat(timespec="seconds"), data_str])
 
 
-def get_next_question_key(current_index, answers):
+def is_qrs_complete(answers):
     if answers.get("QRS") == "No (Asystole)":
-        return None
+        return True
     preexc = answers.get("Preexcitation")
-    if preexc == "No" and "AP" in QUESTION_ORDER:
+    if preexc == "No" and "AP" in QRS_QUESTION_ORDER:
         skip_ap = True
     else:
         skip_ap = False
     if preexc == "Yes" and "AP" in answers:
-        return None
-    for i in range(current_index, len(QUESTION_ORDER)):
-        key = QUESTION_ORDER[i]
+        return True
+    for key in QRS_QUESTION_ORDER:
         if skip_ap and key == "AP":
             continue
         if key not in answers:
-            return key
+            return False
         if key == "Duration" and answers[key] in DURATION_FOLLOWUPS and answers[key] not in answers:
-            return answers[key]
+            return False
     duration_answer = answers.get("Duration")
     if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
-        return duration_answer
+        return False
+    return True
+
+
+def get_next_question_key(current_index, answers):
+    if not is_qrs_complete(answers):
+        preexc = answers.get("Preexcitation")
+        if preexc == "No" and "AP" in QRS_QUESTION_ORDER:
+            skip_ap = True
+        else:
+            skip_ap = False
+        for i in range(current_index, len(QRS_QUESTION_ORDER)):
+            key = QRS_QUESTION_ORDER[i]
+            if skip_ap and key == "AP":
+                continue
+            if key not in answers:
+                return key
+            if key == "Duration" and answers[key] in DURATION_FOLLOWUPS and answers[key] not in answers:
+                return answers[key]
+        duration_answer = answers.get("Duration")
+        if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
+            return duration_answer
+    else:
+        for key in NOISE_ARTIFACTS_QUESTION_ORDER:
+            if key not in answers:
+                return key
     return None
+
+
+def has_more_questions(answers):
+    return get_next_question_key(0, answers) is not None
 
 
 def load_all_users():
@@ -259,30 +291,30 @@ def render_file_upload_page():
 def render_review_page():
     st.subheader("Review your answers")
     answers = st.session_state["answers"]
-    for key in QUESTION_ORDER:
+    for key in ALL_QUESTION_ORDER:
         if key in answers:
-            st.markdown(f"**{QRS_GRAPH[key]['question']}**")
+            st.markdown(f"**{ALL_QUESTIONS_GRAPH[key]['question']}**")
             st.write(answers[key])
     duration_answer = answers.get("Duration")
     if duration_answer in DURATION_FOLLOWUPS and duration_answer in answers:
-        st.markdown(f"**{QRS_GRAPH[duration_answer]['question']}**")
+        st.markdown(f"**{ALL_QUESTIONS_GRAPH[duration_answer]['question']}**")
         st.write(answers[duration_answer])
 
     def go_back():
         for followup in DURATION_FOLLOWUPS:
             if followup in answers:
                 answers.pop(followup, None)
-                st.session_state["current_question_index"] = len(QUESTION_ORDER)
+                st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
                 st.rerun()
                 return
         last_answered_index = -1
-        for i in range(len(QUESTION_ORDER) - 1, -1, -1):
-            key = QUESTION_ORDER[i]
+        for i in range(len(ALL_QUESTION_ORDER) - 1, -1, -1):
+            key = ALL_QUESTION_ORDER[i]
             if key in answers:
                 last_answered_index = i
                 break
         if last_answered_index >= 0:
-            last_key = QUESTION_ORDER[last_answered_index]
+            last_key = ALL_QUESTION_ORDER[last_answered_index]
             answers.pop(last_key, None)
             st.session_state["current_question_index"] = last_answered_index
         else:
@@ -304,11 +336,24 @@ def handle_back_navigation(question_key):
     answers = st.session_state["answers"]
     if question_key in DURATION_FOLLOWUPS:
         answers.pop("Duration", None)
-        st.session_state["current_question_index"] = QUESTION_ORDER.index("Duration")
+        st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index("Duration")
+    elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
+        answers.pop(question_key, None)
+        last_qrs_index = -1
+        for i in range(len(QRS_QUESTION_ORDER) - 1, -1, -1):
+            key = QRS_QUESTION_ORDER[i]
+            if key in answers:
+                last_qrs_index = i
+                break
+        if last_qrs_index >= 0:
+            st.session_state["current_question_index"] = last_qrs_index
+        else:
+            st.session_state["current_question_index"] = 0
     else:
         new_index = st.session_state["current_question_index"] - 1
-        answers.pop(QUESTION_ORDER[new_index], None)
-        st.session_state["current_question_index"] = new_index
+        if new_index >= 0 and new_index < len(QRS_QUESTION_ORDER):
+            answers.pop(QRS_QUESTION_ORDER[new_index], None)
+            st.session_state["current_question_index"] = new_index
     st.rerun()
 
 
@@ -318,11 +363,28 @@ def handle_next_navigation(question_key, selected):
     if question_key == "Duration":
         for opt in DURATION_FOLLOWUPS:
             answers.pop(opt, None)
-    if question_key in QUESTION_ORDER:
-        idx = QUESTION_ORDER.index(question_key)
+    if question_key in QRS_QUESTION_ORDER:
+        idx = QRS_QUESTION_ORDER.index(question_key)
         st.session_state["current_question_index"] = idx if question_key == "Duration" else idx + 1
+    elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
+        idx = NOISE_ARTIFACTS_QUESTION_ORDER.index(question_key)
+        if idx + 1 < len(NOISE_ARTIFACTS_QUESTION_ORDER):
+            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + idx + 1
+        else:
+            st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
     else:
-        st.session_state["current_question_index"] = len(QUESTION_ORDER)
+        st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
+    st.rerun()
+
+
+def handle_submit_from_question(question_key, selected):
+    answers = st.session_state["answers"]
+    answers[question_key] = selected
+    save_all_responses(answers, st.session_state["current_filename"])
+    filename = st.session_state["current_filename"]
+    if filename not in st.session_state["completed_files"]:
+        st.session_state["completed_files"].append(filename)
+    st.session_state["submission_complete"] = True
     st.rerun()
 
 
@@ -337,17 +399,28 @@ def render_questions_page():
     if question_key is None:
         render_review_page()
         return
-    question_data = QRS_GRAPH[question_key]
+    question_data = ALL_QUESTIONS_GRAPH[question_key]
     st.markdown("### Question")
     st.write(question_data["question"])
     prev_answer = st.session_state["answers"].get(question_key)
     default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
     selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
+    temp_answers = {**st.session_state["answers"], question_key: selected}
+    is_last_question = not has_more_questions(temp_answers)
     if st.session_state["current_question_index"] > 0:
-        render_button_pair("Back", "Next", lambda: handle_back_navigation(question_key), lambda: handle_next_navigation(question_key, selected))
+        if is_last_question:
+            render_button_pair(
+                "Back", "Submit", lambda: handle_back_navigation(question_key), lambda: handle_submit_from_question(question_key, selected)
+            )
+        else:
+            render_button_pair("Back", "Next", lambda: handle_back_navigation(question_key), lambda: handle_next_navigation(question_key, selected))
     else:
-        if st.button("Next", width="stretch"):
-            handle_next_navigation(question_key, selected)
+        if is_last_question:
+            if st.button("Submit", width="stretch"):
+                handle_submit_from_question(question_key, selected)
+        else:
+            if st.button("Next", width="stretch"):
+                handle_next_navigation(question_key, selected)
 
 
 def render_completion_page():
