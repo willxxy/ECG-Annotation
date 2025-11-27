@@ -13,7 +13,8 @@ from ecg_annot.configs.annotation import (
     T_QUESTION_ORDER,
     ALL_QUESTION_ORDER,
 )
-from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only, PTB_ORDER
+from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only as load_ecg_xml, PTB_ORDER
+from ecg_annot.data_utils.prepare_np import load_ecg_signals_only as load_ecg_np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import gspread
@@ -273,17 +274,21 @@ def render_ecg_plot(ecg_data, selected_leads):
 
 def render_file_upload_page():
     render_page_header("ECG Annotation", "Upload ECG File")
-    uploaded_file = st.file_uploader("Upload a file", accept_multiple_files=False)
+    uploaded_file = st.file_uploader("Upload a file", type=["xml", "npy"], accept_multiple_files=False)
     if uploaded_file is None:
         return
 
     filename = uploaded_file.name
-    if filename and filename.endswith(".xml"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp_file:
+    if filename and (filename.endswith(".xml") or filename.endswith(".npy")):
+        suffix = ".xml" if filename.endswith(".xml") else ".npy"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_path = tmp_file.name
         try:
-            st.session_state["ecg_data"] = load_ecg_signals_only(tmp_path)
+            if filename.endswith(".xml"):
+                st.session_state["ecg_data"] = load_ecg_xml(tmp_path)
+            else:
+                st.session_state["ecg_data"] = load_ecg_np(tmp_path)
             st.session_state["current_filename"] = filename
             st.session_state["file_uploaded"] = True
         finally:
