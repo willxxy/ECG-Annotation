@@ -346,6 +346,8 @@ def handle_back_navigation(question_key):
                 last_qrs_index = i
                 break
         if last_qrs_index >= 0:
+            last_key = QRS_QUESTION_ORDER[last_qrs_index]
+            answers.pop(last_key, None)
             st.session_state["current_question_index"] = last_qrs_index
         else:
             st.session_state["current_question_index"] = 0
