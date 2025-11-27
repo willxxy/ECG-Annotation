@@ -10,6 +10,7 @@ from ecg_annot.configs.annotation import (
     ALL_QUESTIONS_GRAPH,
     QRS_QUESTION_ORDER,
     NOISE_ARTIFACTS_QUESTION_ORDER,
+    T_QUESTION_ORDER,
     ALL_QUESTION_ORDER,
 )
 from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only, PTB_ORDER
@@ -131,6 +132,9 @@ def get_next_question_key(current_index, answers):
             return duration_answer
     else:
         for key in NOISE_ARTIFACTS_QUESTION_ORDER:
+            if key not in answers:
+                return key
+        for key in T_QUESTION_ORDER:
             if key not in answers:
                 return key
     return None
@@ -337,6 +341,31 @@ def handle_back_navigation(question_key):
     if question_key in DURATION_FOLLOWUPS:
         answers.pop("Duration", None)
         st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index("Duration")
+    elif question_key in T_QUESTION_ORDER:
+        answers.pop(question_key, None)
+        last_noise_index = -1
+        for i in range(len(NOISE_ARTIFACTS_QUESTION_ORDER) - 1, -1, -1):
+            key = NOISE_ARTIFACTS_QUESTION_ORDER[i]
+            if key in answers:
+                last_noise_index = i
+                break
+        if last_noise_index >= 0:
+            last_key = NOISE_ARTIFACTS_QUESTION_ORDER[last_noise_index]
+            answers.pop(last_key, None)
+            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + last_noise_index
+        else:
+            last_qrs_index = -1
+            for i in range(len(QRS_QUESTION_ORDER) - 1, -1, -1):
+                key = QRS_QUESTION_ORDER[i]
+                if key in answers:
+                    last_qrs_index = i
+                    break
+            if last_qrs_index >= 0:
+                last_key = QRS_QUESTION_ORDER[last_qrs_index]
+                answers.pop(last_key, None)
+                st.session_state["current_question_index"] = last_qrs_index
+            else:
+                st.session_state["current_question_index"] = 0
     elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
         answers.pop(question_key, None)
         last_qrs_index = -1
@@ -372,6 +401,12 @@ def handle_next_navigation(question_key, selected):
         idx = NOISE_ARTIFACTS_QUESTION_ORDER.index(question_key)
         if idx + 1 < len(NOISE_ARTIFACTS_QUESTION_ORDER):
             st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + idx + 1
+        else:
+            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER)
+    elif question_key in T_QUESTION_ORDER:
+        idx = T_QUESTION_ORDER.index(question_key)
+        if idx + 1 < len(T_QUESTION_ORDER):
+            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER) + idx + 1
         else:
             st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
     else:

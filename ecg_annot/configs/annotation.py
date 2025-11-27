@@ -72,6 +72,19 @@ QRS_GRAPH = {
         "question": "If the duration is <110, please specify:",
         "choices": [
             "rSR'",
+            "None",
+        ],
+    },
+}
+
+T_GRAPH = {
+    "T": {
+        "question": "What is the morphology of the T wave?",
+        "choices": [
+            "Normal",
+            "Peaked",
+            "Inverted",
+            "Nonspecific",
         ],
     },
 }
@@ -87,15 +100,17 @@ NOISE_ARTIFACTS_GRAPH = {
     },
 }
 
-ALL_QUESTIONS_GRAPH = {**QRS_GRAPH, **NOISE_ARTIFACTS_GRAPH}
+ALL_QUESTIONS_GRAPH = {**QRS_GRAPH, **NOISE_ARTIFACTS_GRAPH, **T_GRAPH}
 
 QRS_QUESTION_ORDER = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
 NOISE_ARTIFACTS_QUESTION_ORDER = ["Noise artifacts"]
-ALL_QUESTION_ORDER = QRS_QUESTION_ORDER + NOISE_ARTIFACTS_QUESTION_ORDER
+T_QUESTION_ORDER = ["T"]
+ALL_QUESTION_ORDER = QRS_QUESTION_ORDER + NOISE_ARTIFACTS_QUESTION_ORDER + T_QUESTION_ORDER
 
 SECTIONS = [
     ("QRS", QRS_GRAPH),
     ("Noise Artifacts", NOISE_ARTIFACTS_GRAPH),
+    ("T", T_GRAPH),
 ]
 
 if __name__ == "__main__":
