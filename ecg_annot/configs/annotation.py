@@ -13,9 +13,11 @@ QRS_GRAPH = {
     "Lead reversal": {
         "question": "Is there a lead reversal present?",
         "choices": [
+            "No",
             "LA/RA",
             "LA/LL",
             "RA/RL",
+            "Other",
         ],
     },
     "Rate": {
@@ -36,7 +38,7 @@ QRS_GRAPH = {
     },
     "Preexcitation": {"question": "Is there a preexcitation present?", "choices": ["Yes", "No"]},
     "AP": {
-        "question": "What is the AP?",
+        "question": "What is the accessory pathway (AP)?",
         "choices": [
             "Normal",
             "Right/LPFB",
@@ -45,7 +47,7 @@ QRS_GRAPH = {
         ],
     },
     "Duration": {
-        "question": "What is the duration of the QRS complex?",
+        "question": "What is the duration of the QRS complex in milliseconds?",
         "choices": [
             "<110",
             ">120",
@@ -56,23 +58,23 @@ QRS_GRAPH = {
         "question": "If the duration is >120, please specify:",
         "choices": [
             "IVCD",
-            "RBB",
+            "RBBB",
             "LBBB",
         ],
     },
     "110-120": {
         "question": "If the duration is 110-120, please specify:",
         "choices": [
-            "iLBBB",
-            "iRBB",
+            "incomplete LBBB",
+            "incomplete RBBB",
             "Other",
         ],
     },
     "<110": {
         "question": "If the duration is <110, please specify:",
         "choices": [
-            "rSR'",
-            "None",
+            "rSR complex in V1",
+            "Normal V1",
         ],
     },
 }
@@ -93,9 +95,9 @@ NOISE_ARTIFACTS_GRAPH = {
     "Noise artifacts": {
         "question": "What kind of noise artifacts are present?",
         "choices": [
-            "Missing",
+            "Missing lead",
             "LVAD",
-            "Noise",
+            "Other noise",
         ],
     },
 }

@@ -190,7 +190,7 @@ st.markdown(
         flex: 1;
     }
     div[data-testid="stRadio"] > div {
-        min-height: 120px;
+        min-height: 130px;
     }
     .completed-files {
         position: fixed;
