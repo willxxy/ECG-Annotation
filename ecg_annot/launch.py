@@ -22,7 +22,7 @@ from google.oauth2.service_account import Credentials
 import base64
 
 st.set_page_config(
-    page_title="Minimal Q&A",
+    page_title="ECG Annotation",
     page_icon="⬡",
     layout="centered",
     initial_sidebar_state="collapsed",
