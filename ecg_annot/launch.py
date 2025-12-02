@@ -49,6 +49,7 @@ def init_session_state():
         "visualization_data": None,
         "show_graph": True,
         "navigation_history": list,
+        "show_review": False,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -163,6 +164,7 @@ def reset_session_for_new_file():
         "file_type": None,
         "visualization_data": None,
         "navigation_history": [],
+        "show_review": False,
     })
 
 
@@ -321,9 +323,7 @@ def build_traversed_edges():
 
 
 def navigate_to_question(question_key):
-    if question_key == "Review":
-        st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
-    elif question_key in QRS_QUESTION_ORDER:
+    if question_key in QRS_QUESTION_ORDER:
         st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index(question_key)
     elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
         st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + NOISE_ARTIFACTS_QUESTION_ORDER.index(question_key)
@@ -331,6 +331,7 @@ def navigate_to_question(question_key):
         st.session_state["current_question_index"] = (
             len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER) + T_QUESTION_ORDER.index(question_key)
         )
+    st.session_state["show_review"] = False
     st.rerun()
 
 
@@ -338,13 +339,13 @@ def render_question_graph(current_question_key):
     import random
 
     nodes = []
-    all_keys = QRS_QUESTION_ORDER + DURATION_FOLLOWUPS + NOISE_ARTIFACTS_QUESTION_ORDER + T_QUESTION_ORDER + ["Review"]
+    all_keys = QRS_QUESTION_ORDER + DURATION_FOLLOWUPS + NOISE_ARTIFACTS_QUESTION_ORDER + T_QUESTION_ORDER
 
     random.seed(42)
 
     for i, key in enumerate(all_keys):
-        if key in ALL_QUESTIONS_GRAPH or key == "Review":
-            label = ALL_QUESTIONS_GRAPH[key]["question"][:30] + "..." if key != "Review" else "Review & Submit"
+        if key in ALL_QUESTIONS_GRAPH:
+            label = ALL_QUESTIONS_GRAPH[key]["question"][:30] + "..."
 
             x_pos = random.randint(-500, 500)
             y_pos = random.randint(-500, 500)
@@ -449,10 +450,10 @@ def render_review_page():
         st.write(answers[duration_answer])
 
     def go_back():
+        st.session_state["show_review"] = False
         history = st.session_state["navigation_history"]
-        if history and history[-1] == "Review":
+        if history:
             history.pop()
-
         for followup in DURATION_FOLLOWUPS:
             if followup in answers:
                 answers.pop(followup, None)
@@ -572,19 +573,8 @@ def handle_next_navigation(question_key, selected):
     if next_key:
         update_navigation_history(next_key)
     else:
-        update_navigation_history("Review")
+        st.session_state["show_review"] = True
 
-    st.rerun()
-
-
-def handle_submit_from_question(question_key, selected):
-    answers = st.session_state["answers"]
-    answers[question_key] = selected
-    save_all_responses(answers, st.session_state["current_filename"])
-    filename = st.session_state["current_filename"]
-    if filename not in st.session_state["completed_files"]:
-        st.session_state["completed_files"].append(filename)
-    st.session_state["submission_complete"] = True
     st.rerun()
 
 
@@ -606,47 +596,40 @@ def render_questions_page():
     left_col, right_col = st.columns([3, 2])
     with left_col:
         st.markdown('<div class="question-panel">', unsafe_allow_html=True)
-        question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
-        if question_key is None:
+
+        if st.session_state["show_review"]:
             render_review_page()
         else:
-            question_data = ALL_QUESTIONS_GRAPH[question_key]
-            st.markdown("### Question")
-            st.markdown(
-                f'<div class="question-text">{question_data["question"]}</div>',
-                unsafe_allow_html=True,
-            )
-            prev_answer = st.session_state["answers"].get(question_key)
-            default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
-            selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
-            temp_answers = {**st.session_state["answers"], question_key: selected}
-            is_last_question = not has_more_questions(temp_answers)
-            if st.session_state["current_question_index"] > 0:
-                if is_last_question:
-                    render_button_pair(
-                        "Back",
-                        "Submit",
-                        lambda: handle_back_navigation(question_key),
-                        lambda: handle_submit_from_question(question_key, selected),
-                    )
-                else:
+            question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
+            if question_key is None:
+                st.session_state["show_review"] = True
+                st.rerun()
+            else:
+                question_data = ALL_QUESTIONS_GRAPH[question_key]
+                st.markdown("### Question")
+                st.markdown(
+                    f'<div class="question-text">{question_data["question"]}</div>',
+                    unsafe_allow_html=True,
+                )
+                prev_answer = st.session_state["answers"].get(question_key)
+                default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
+                selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
+
+                if st.session_state["current_question_index"] > 0:
                     render_button_pair(
                         "Back",
                         "Next",
                         lambda: handle_back_navigation(question_key),
                         lambda: handle_next_navigation(question_key, selected),
                     )
-            else:
-                if is_last_question:
-                    if st.button("Submit", width="stretch"):
-                        handle_submit_from_question(question_key, selected)
                 else:
                     if st.button("Next", width="stretch"):
                         handle_next_navigation(question_key, selected)
         st.markdown("</div>", unsafe_allow_html=True)
     with right_col:
-        if st.session_state["show_graph"]:
-            current_key = question_key or "Review"
+        if st.session_state["show_graph"] and not st.session_state["show_review"]:
+            question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
+            current_key = question_key or list(ALL_QUESTIONS_GRAPH.keys())[0]
             st.markdown("### Question Graph")
 
             col_a, col_b = st.columns(2)
@@ -660,7 +643,7 @@ def render_questions_page():
                     st.rerun()
 
             render_question_graph(current_key)
-        else:
+        elif not st.session_state["show_review"]:
             st.markdown("### Question Graph")
             if st.button("Show Graph"):
                 st.session_state["show_graph"] = True
