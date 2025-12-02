@@ -20,11 +20,12 @@ from plotly.subplots import make_subplots
 import gspread
 from google.oauth2.service_account import Credentials
 import base64
+from streamlit_agraph import agraph, Node, Edge, Config
 
 st.set_page_config(
     page_title="ECG Annotation",
     page_icon="⬡",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
@@ -46,6 +47,8 @@ def init_session_state():
         "reset_confirmed": False,
         "file_type": None,
         "visualization_data": None,
+        "show_graph": True,
+        "navigation_history": list,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -97,18 +100,13 @@ def is_qrs_complete(answers):
     if answers.get("QRS") == "No (Asystole)":
         return True
     preexc = answers.get("Preexcitation")
-    if preexc == "No" and "AP" in QRS_QUESTION_ORDER:
-        skip_ap = True
-    else:
-        skip_ap = False
+    skip_ap = preexc == "No" and "AP" in QRS_QUESTION_ORDER
     if preexc == "Yes" and "AP" in answers:
         return True
     for key in QRS_QUESTION_ORDER:
         if skip_ap and key == "AP":
             continue
         if key not in answers:
-            return False
-        if key == "Duration" and answers[key] in DURATION_FOLLOWUPS and answers[key] not in answers:
             return False
     duration_answer = answers.get("Duration")
     if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
@@ -119,18 +117,13 @@ def is_qrs_complete(answers):
 def get_next_question_key(current_index, answers):
     if not is_qrs_complete(answers):
         preexc = answers.get("Preexcitation")
-        if preexc == "No" and "AP" in QRS_QUESTION_ORDER:
-            skip_ap = True
-        else:
-            skip_ap = False
+        skip_ap = preexc == "No" and "AP" in QRS_QUESTION_ORDER
         for i in range(current_index, len(QRS_QUESTION_ORDER)):
             key = QRS_QUESTION_ORDER[i]
             if skip_ap and key == "AP":
                 continue
             if key not in answers:
                 return key
-            if key == "Duration" and answers[key] in DURATION_FOLLOWUPS and answers[key] not in answers:
-                return answers[key]
         duration_answer = answers.get("Duration")
         if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
             return duration_answer
@@ -156,7 +149,6 @@ def reset_database():
     ws = get_worksheet()
     ws.clear()
     ws.append_row(["user_id", "created_at", "data"])
-    get_sheets_client.clear()
 
 
 def reset_session_for_new_file():
@@ -170,6 +162,7 @@ def reset_session_for_new_file():
         "submission_complete": False,
         "file_type": None,
         "visualization_data": None,
+        "navigation_history": [],
     })
 
 
@@ -177,10 +170,8 @@ st.markdown(
     """
     <style>
     .main {
-        max-width: 600px;
-        margin: 0 auto;
-        padding-top: 4rem;
-        padding-bottom: 4rem;
+        padding-top: 1rem;
+        padding-bottom: 2rem;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
     }
     .stButton>button {
@@ -206,6 +197,7 @@ st.markdown(
         border-radius: 8px;
         max-width: 200px;
         font-size: 12px;
+        z-index: 999;
     }
     </style>
     """,
@@ -246,7 +238,7 @@ def render_button_pair(left_text, right_text, left_callback, right_callback, rig
             right_callback()
 
 
-def render_lead_selection(ecg_data):
+def render_lead_selection():
     cols = st.columns(6)
     selected_leads = []
     for i, lead in enumerate(PTB_ORDER):
@@ -279,11 +271,97 @@ def render_ecg_plot(ecg_data, selected_leads):
 
 def render_visualization(file_bytes: bytes, filename: str):
     if filename.lower().endswith(".png"):
-        st.image(file_bytes, use_container_width=True)
+        st.image(file_bytes, width="stretch")
     elif filename.lower().endswith(".pdf"):
         base64_pdf = base64.b64encode(file_bytes).decode("utf-8")
         pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800px" type="application/pdf"></iframe>'
         st.markdown(pdf_display, unsafe_allow_html=True)
+
+
+def get_node_color(node_id, current_question_key):
+    if node_id == current_question_key:
+        return "#ff4444"
+    elif node_id in st.session_state["answers"]:
+        return "#44ff44"
+    elif node_id in st.session_state["navigation_history"]:
+        return "#ffaa44"
+    else:
+        return "#4444ff"
+
+
+def build_traversed_edges():
+    edges = []
+    history = st.session_state["navigation_history"]
+    for i in range(len(history) - 1):
+        from_node = history[i]
+        to_node = history[i + 1]
+        edges.append(Edge(source=from_node, target=to_node, type="CURVE_SMOOTH"))
+    return edges
+
+
+def navigate_to_question(question_key):
+    if question_key == "Review":
+        st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
+    elif question_key in QRS_QUESTION_ORDER:
+        st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index(question_key)
+    elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
+        st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + NOISE_ARTIFACTS_QUESTION_ORDER.index(question_key)
+    elif question_key in T_QUESTION_ORDER:
+        st.session_state["current_question_index"] = (
+            len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER) + T_QUESTION_ORDER.index(question_key)
+        )
+    st.rerun()
+
+
+def render_question_graph(current_question_key):
+    import random
+
+    nodes = []
+    all_keys = QRS_QUESTION_ORDER + DURATION_FOLLOWUPS + NOISE_ARTIFACTS_QUESTION_ORDER + T_QUESTION_ORDER + ["Review"]
+
+    random.seed(42)
+
+    for i, key in enumerate(all_keys):
+        if key in ALL_QUESTIONS_GRAPH or key == "Review":
+            label = ALL_QUESTIONS_GRAPH[key]["question"][:30] + "..." if key != "Review" else "Review & Submit"
+
+            x_pos = random.randint(-600, 600)
+            y_pos = random.randint(-600, 600)
+
+            nodes.append(Node(id=key, label=label, size=25, color=get_node_color(key, current_question_key), shape="box", x=x_pos, y=y_pos))
+
+    edges = build_traversed_edges()
+
+    config = Config(
+        width="100%",
+        height=800,
+        directed=True,
+        physics={
+            "enabled": True,
+            "barnesHut": {
+                "gravitationalConstant": -8000,
+                "centralGravity": 0.3,
+                "springLength": 200,
+                "springConstant": 0.04,
+                "damping": 0.09,
+                "avoidOverlap": 0.5,
+            },
+            "solver": "barnesHut",
+        },
+        hierarchical=False,
+    )
+
+    return_value = agraph(nodes=nodes, edges=edges, config=config)
+
+    if return_value and return_value != current_question_key:
+        navigate_to_question(return_value)
+
+
+def update_navigation_history(new_question_key):
+    history = st.session_state["navigation_history"]
+    if not history or history[-1] != new_question_key:
+        history.append(new_question_key)
+    st.session_state["navigation_history"] = history
 
 
 def render_file_upload_page():
@@ -291,10 +369,8 @@ def render_file_upload_page():
     uploaded_file = st.file_uploader("Upload a file", type=["xml", "npy", "png", "pdf"], accept_multiple_files=False)
     if uploaded_file is None:
         return
-
     filename = uploaded_file.name
     file_bytes = uploaded_file.getvalue()
-
     if filename and (filename.endswith(".xml") or filename.endswith(".npy")):
         suffix = ".xml" if filename.endswith(".xml") else ".npy"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
@@ -311,6 +387,9 @@ def render_file_upload_page():
         finally:
             os.unlink(tmp_path)
         if st.button("Start Annotation", width="stretch"):
+            first_question = get_next_question_key(0, {})
+            if first_question:
+                update_navigation_history(first_question)
             st.rerun()
     elif filename and (filename.endswith(".png") or filename.endswith(".pdf")):
         st.session_state["visualization_data"] = file_bytes
@@ -318,6 +397,9 @@ def render_file_upload_page():
         st.session_state["current_filename"] = filename
         st.session_state["file_uploaded"] = True
         if st.button("Start Annotation", width="stretch"):
+            first_question = get_next_question_key(0, {})
+            if first_question:
+                update_navigation_history(first_question)
             st.rerun()
 
 
@@ -334,6 +416,10 @@ def render_review_page():
         st.write(answers[duration_answer])
 
     def go_back():
+        history = st.session_state["navigation_history"]
+        if history and history[-1] == "Review":
+            history.pop()
+
         for followup in DURATION_FOLLOWUPS:
             if followup in answers:
                 answers.pop(followup, None)
@@ -367,6 +453,11 @@ def render_review_page():
 
 def handle_back_navigation(question_key):
     answers = st.session_state["answers"]
+    history = st.session_state["navigation_history"]
+
+    if history and history[-1] == question_key:
+        history.pop()
+
     if question_key in DURATION_FOLLOWUPS:
         answers.pop("Duration", None)
         st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index("Duration")
@@ -411,9 +502,11 @@ def handle_back_navigation(question_key):
             st.session_state["current_question_index"] = 0
     else:
         new_index = st.session_state["current_question_index"] - 1
-        if new_index >= 0 and new_index < len(QRS_QUESTION_ORDER):
+        if 0 <= new_index < len(QRS_QUESTION_ORDER):
             answers.pop(QRS_QUESTION_ORDER[new_index], None)
             st.session_state["current_question_index"] = new_index
+
+    st.session_state["navigation_history"] = history
     st.rerun()
 
 
@@ -440,6 +533,13 @@ def handle_next_navigation(question_key, selected):
             st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
     else:
         st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
+
+    next_key = get_next_question_key(st.session_state["current_question_index"], answers)
+    if next_key:
+        update_navigation_history(next_key)
+    else:
+        update_navigation_history("Review")
+
     st.rerun()
 
 
@@ -456,46 +556,67 @@ def handle_submit_from_question(question_key, selected):
 
 def render_questions_page():
     render_page_header("ECG Annotation")
-    file_type = st.session_state.get("file_type")
-
-    if file_type == "signal":
-        ecg_data = st.session_state["ecg_data"]
-        if ecg_data is not None:
-            selected_leads = render_lead_selection(ecg_data)
-            st.session_state["selected_leads"] = selected_leads
-            render_ecg_plot(ecg_data, selected_leads)
-    elif file_type == "visualization":
-        visualization_data = st.session_state.get("visualization_data")
-        filename = st.session_state.get("current_filename")
-        if visualization_data is not None and filename:
-            render_visualization(visualization_data, filename)
-
-    question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
-    if question_key is None:
-        render_review_page()
-        return
-    question_data = ALL_QUESTIONS_GRAPH[question_key]
-    st.markdown("### Question")
-    st.write(question_data["question"])
-    prev_answer = st.session_state["answers"].get(question_key)
-    default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
-    selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
-    temp_answers = {**st.session_state["answers"], question_key: selected}
-    is_last_question = not has_more_questions(temp_answers)
-    if st.session_state["current_question_index"] > 0:
-        if is_last_question:
-            render_button_pair(
-                "Back", "Submit", lambda: handle_back_navigation(question_key), lambda: handle_submit_from_question(question_key, selected)
-            )
+    left_col, right_col = st.columns([3, 2])
+    with left_col:
+        question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
+        file_type = st.session_state.get("file_type")
+        if file_type == "signal":
+            ecg_data = st.session_state["ecg_data"]
+            if ecg_data is not None:
+                selected_leads = render_lead_selection()
+                st.session_state["selected_leads"] = selected_leads
+                render_ecg_plot(ecg_data, selected_leads)
+        elif file_type == "visualization":
+            visualization_data = st.session_state.get("visualization_data")
+            filename = st.session_state.get("current_filename")
+            if visualization_data is not None and filename:
+                render_visualization(visualization_data, filename)
+        if question_key is None:
+            render_review_page()
         else:
-            render_button_pair("Back", "Next", lambda: handle_back_navigation(question_key), lambda: handle_next_navigation(question_key, selected))
-    else:
-        if is_last_question:
-            if st.button("Submit", width="stretch"):
-                handle_submit_from_question(question_key, selected)
+            question_data = ALL_QUESTIONS_GRAPH[question_key]
+            st.markdown("### Question")
+            st.write(question_data["question"])
+            prev_answer = st.session_state["answers"].get(question_key)
+            default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
+            selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
+            temp_answers = {**st.session_state["answers"], question_key: selected}
+            is_last_question = not has_more_questions(temp_answers)
+            if st.session_state["current_question_index"] > 0:
+                if is_last_question:
+                    render_button_pair(
+                        "Back",
+                        "Submit",
+                        lambda: handle_back_navigation(question_key),
+                        lambda: handle_submit_from_question(question_key, selected),
+                    )
+                else:
+                    render_button_pair(
+                        "Back",
+                        "Next",
+                        lambda: handle_back_navigation(question_key),
+                        lambda: handle_next_navigation(question_key, selected),
+                    )
+            else:
+                if is_last_question:
+                    if st.button("Submit", width="stretch"):
+                        handle_submit_from_question(question_key, selected)
+                else:
+                    if st.button("Next", width="stretch"):
+                        handle_next_navigation(question_key, selected)
+    with right_col:
+        if st.session_state["show_graph"]:
+            current_key = question_key or "Review"
+            st.markdown("### Question Flow")
+            if st.button("Hide Graph"):
+                st.session_state["show_graph"] = False
+                st.rerun()
+            render_question_graph(current_key)
         else:
-            if st.button("Next", width="stretch"):
-                handle_next_navigation(question_key, selected)
+            st.markdown("### Question Flow")
+            if st.button("Show Graph"):
+                st.session_state["show_graph"] = True
+                st.rerun()
 
 
 def render_completion_page():

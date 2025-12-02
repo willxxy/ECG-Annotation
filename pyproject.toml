@@ -15,6 +15,7 @@ dependencies = [
     "gspread",
     "google-auth",
     "streamlit-plotly-events"
+    "streamlit-agraph"
 ]
 
 [tool.ruff.lint]

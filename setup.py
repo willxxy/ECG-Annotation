@@ -29,6 +29,7 @@ INSTALL_REQUIRES = [
     "gspread",
     "google-auth",
     "streamlit-plotly-events",
+    "streamlit-agraph==0.0.45",
 ]
 
 setup(
