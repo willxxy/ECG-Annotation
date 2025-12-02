@@ -19,6 +19,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import gspread
 from google.oauth2.service_account import Credentials
+import base64
 
 st.set_page_config(
     page_title="Minimal Q&A",
@@ -43,6 +44,8 @@ def init_session_state():
         "completed_files": list,
         "submission_complete": False,
         "reset_confirmed": False,
+        "file_type": None,
+        "visualization_data": None,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -165,6 +168,8 @@ def reset_session_for_new_file():
         "file_uploaded": False,
         "current_filename": None,
         "submission_complete": False,
+        "file_type": None,
+        "visualization_data": None,
     })
 
 
@@ -272,27 +277,46 @@ def render_ecg_plot(ecg_data, selected_leads):
     st.plotly_chart(fig, width="stretch")
 
 
+def render_visualization(file_bytes: bytes, filename: str):
+    if filename.lower().endswith(".png"):
+        st.image(file_bytes, use_container_width=True)
+    elif filename.lower().endswith(".pdf"):
+        base64_pdf = base64.b64encode(file_bytes).decode("utf-8")
+        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800px" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+
+
 def render_file_upload_page():
     render_page_header("ECG Annotation", "Upload ECG File")
-    uploaded_file = st.file_uploader("Upload a file", type=["xml", "npy"], accept_multiple_files=False)
+    uploaded_file = st.file_uploader("Upload a file", type=["xml", "npy", "png", "pdf"], accept_multiple_files=False)
     if uploaded_file is None:
         return
 
     filename = uploaded_file.name
+    file_bytes = uploaded_file.getvalue()
+
     if filename and (filename.endswith(".xml") or filename.endswith(".npy")):
         suffix = ".xml" if filename.endswith(".xml") else ".npy"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
+            tmp_file.write(file_bytes)
             tmp_path = tmp_file.name
         try:
             if filename.endswith(".xml"):
                 st.session_state["ecg_data"] = load_ecg_xml(tmp_path)
             else:
                 st.session_state["ecg_data"] = load_ecg_np(tmp_path)
+            st.session_state["file_type"] = "signal"
             st.session_state["current_filename"] = filename
             st.session_state["file_uploaded"] = True
         finally:
             os.unlink(tmp_path)
+        if st.button("Start Annotation", width="stretch"):
+            st.rerun()
+    elif filename and (filename.endswith(".png") or filename.endswith(".pdf")):
+        st.session_state["visualization_data"] = file_bytes
+        st.session_state["file_type"] = "visualization"
+        st.session_state["current_filename"] = filename
+        st.session_state["file_uploaded"] = True
         if st.button("Start Annotation", width="stretch"):
             st.rerun()
 
@@ -432,11 +456,20 @@ def handle_submit_from_question(question_key, selected):
 
 def render_questions_page():
     render_page_header("ECG Annotation")
-    ecg_data = st.session_state["ecg_data"]
-    if ecg_data is not None:
-        selected_leads = render_lead_selection(ecg_data)
-        st.session_state["selected_leads"] = selected_leads
-        render_ecg_plot(ecg_data, selected_leads)
+    file_type = st.session_state.get("file_type")
+
+    if file_type == "signal":
+        ecg_data = st.session_state["ecg_data"]
+        if ecg_data is not None:
+            selected_leads = render_lead_selection(ecg_data)
+            st.session_state["selected_leads"] = selected_leads
+            render_ecg_plot(ecg_data, selected_leads)
+    elif file_type == "visualization":
+        visualization_data = st.session_state.get("visualization_data")
+        filename = st.session_state.get("current_filename")
+        if visualization_data is not None and filename:
+            render_visualization(visualization_data, filename)
+
     question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
     if question_key is None:
         render_review_page()
