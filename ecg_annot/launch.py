@@ -39,7 +39,7 @@ def init_session_state():
         "current_question_index": 0,
         "answers": dict,
         "ecg_data": None,
-        "selected_leads": lambda: [PTB_ORDER[1]],
+        "selected_leads": lambda: PTB_ORDER[:],
         "file_uploaded": False,
         "current_filename": None,
         "completed_files": list,
@@ -156,7 +156,7 @@ def reset_session_for_new_file():
         "current_question_index": 0,
         "answers": {},
         "ecg_data": None,
-        "selected_leads": [PTB_ORDER[1]],
+        "selected_leads": PTB_ORDER[:],
         "file_uploaded": False,
         "current_filename": None,
         "submission_complete": False,
@@ -176,6 +176,8 @@ st.markdown(
     }
     .stButton>button {
         border-radius: 0.5rem;
+        font-size: 1.05rem;
+        padding: 0.6rem 1.2rem;
     }
     .button-row {
         display: flex;
@@ -188,6 +190,9 @@ st.markdown(
     div[data-testid="stRadio"] > div {
         min-height: 130px;
     }
+    div[data-testid="stRadio"] label {
+        font-size: 1.05rem;
+    }
     .completed-files {
         position: fixed;
         right: 20px;
@@ -198,6 +203,22 @@ st.markdown(
         max-width: 200px;
         font-size: 12px;
         z-index: 999;
+    }
+    .question-panel {
+        min-height: 400px;
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+    }
+    .question-text {
+        font-size: 1.15rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+    }
+    .portal-choose {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
     }
     </style>
     """,
@@ -246,7 +267,7 @@ def render_lead_selection():
         st.session_state.setdefault(key, lead in st.session_state["selected_leads"])
         if cols[i % 6].checkbox(lead, key=key):
             selected_leads.append(lead)
-    return selected_leads or [PTB_ORDER[1]]
+    return selected_leads or PTB_ORDER[:]
 
 
 def render_ecg_plot(ecg_data, selected_leads):
@@ -280,13 +301,13 @@ def render_visualization(file_bytes: bytes, filename: str):
 
 def get_node_color(node_id, current_question_key):
     if node_id == current_question_key:
-        return "#ff4444"
+        return "#ffaaaa"
     elif node_id in st.session_state["answers"]:
-        return "#44ff44"
+        return "#aaffaa"
     elif node_id in st.session_state["navigation_history"]:
-        return "#ffaa44"
+        return "#ffddaa"
     else:
-        return "#4444ff"
+        return "#aaaaff"
 
 
 def build_traversed_edges():
@@ -295,7 +316,7 @@ def build_traversed_edges():
     for i in range(len(history) - 1):
         from_node = history[i]
         to_node = history[i + 1]
-        edges.append(Edge(source=from_node, target=to_node, type="CURVE_SMOOTH"))
+        edges.append(Edge(source=from_node, target=to_node, type="CURVE_SMOOTH", color="#000000", width=3))
     return edges
 
 
@@ -325,26 +346,37 @@ def render_question_graph(current_question_key):
         if key in ALL_QUESTIONS_GRAPH or key == "Review":
             label = ALL_QUESTIONS_GRAPH[key]["question"][:30] + "..." if key != "Review" else "Review & Submit"
 
-            x_pos = random.randint(-600, 600)
-            y_pos = random.randint(-600, 600)
+            x_pos = random.randint(-500, 500)
+            y_pos = random.randint(-500, 500)
 
-            nodes.append(Node(id=key, label=label, size=25, color=get_node_color(key, current_question_key), shape="box", x=x_pos, y=y_pos))
+            nodes.append(
+                Node(
+                    id=key,
+                    label=label,
+                    size=40,
+                    color=get_node_color(key, current_question_key),
+                    shape="box",
+                    x=x_pos,
+                    y=y_pos,
+                    font={"size": 18, "color": "#000000"},
+                )
+            )
 
     edges = build_traversed_edges()
 
     config = Config(
         width="100%",
-        height=800,
+        height=500,
         directed=True,
         physics={
             "enabled": True,
             "barnesHut": {
-                "gravitationalConstant": -8000,
+                "gravitationalConstant": -10000,
                 "centralGravity": 0.3,
                 "springLength": 200,
                 "springConstant": 0.04,
                 "damping": 0.09,
-                "avoidOverlap": 0.5,
+                "avoidOverlap": 1,
             },
             "solver": "barnesHut",
         },
@@ -353,8 +385,9 @@ def render_question_graph(current_question_key):
 
     return_value = agraph(nodes=nodes, edges=edges, config=config)
 
-    if return_value and return_value != current_question_key:
+    if return_value and return_value in all_keys:
         navigate_to_question(return_value)
+        st.rerun()
 
 
 def update_navigation_history(new_question_key):
@@ -513,6 +546,7 @@ def handle_back_navigation(question_key):
 def handle_next_navigation(question_key, selected):
     answers = st.session_state["answers"]
     answers[question_key] = selected
+    update_navigation_history(question_key)
     if question_key == "Duration":
         for opt in DURATION_FOLLOWUPS:
             answers.pop(opt, None)
@@ -556,27 +590,32 @@ def handle_submit_from_question(question_key, selected):
 
 def render_questions_page():
     render_page_header("ECG Annotation")
+    file_type = st.session_state.get("file_type")
+    if file_type == "signal":
+        ecg_data = st.session_state["ecg_data"]
+        if ecg_data is not None:
+            selected_leads = render_lead_selection()
+            st.session_state["selected_leads"] = selected_leads
+            render_ecg_plot(ecg_data, selected_leads)
+    elif file_type == "visualization":
+        visualization_data = st.session_state.get("visualization_data")
+        filename = st.session_state.get("current_filename")
+        if visualization_data is not None and filename:
+            render_visualization(visualization_data, filename)
+
     left_col, right_col = st.columns([3, 2])
     with left_col:
+        st.markdown('<div class="question-panel">', unsafe_allow_html=True)
         question_key = get_next_question_key(st.session_state["current_question_index"], st.session_state["answers"])
-        file_type = st.session_state.get("file_type")
-        if file_type == "signal":
-            ecg_data = st.session_state["ecg_data"]
-            if ecg_data is not None:
-                selected_leads = render_lead_selection()
-                st.session_state["selected_leads"] = selected_leads
-                render_ecg_plot(ecg_data, selected_leads)
-        elif file_type == "visualization":
-            visualization_data = st.session_state.get("visualization_data")
-            filename = st.session_state.get("current_filename")
-            if visualization_data is not None and filename:
-                render_visualization(visualization_data, filename)
         if question_key is None:
             render_review_page()
         else:
             question_data = ALL_QUESTIONS_GRAPH[question_key]
             st.markdown("### Question")
-            st.write(question_data["question"])
+            st.markdown(
+                f'<div class="question-text">{question_data["question"]}</div>',
+                unsafe_allow_html=True,
+            )
             prev_answer = st.session_state["answers"].get(question_key)
             default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
             selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
@@ -604,16 +643,25 @@ def render_questions_page():
                 else:
                     if st.button("Next", width="stretch"):
                         handle_next_navigation(question_key, selected)
+        st.markdown("</div>", unsafe_allow_html=True)
     with right_col:
         if st.session_state["show_graph"]:
             current_key = question_key or "Review"
-            st.markdown("### Question Flow")
-            if st.button("Hide Graph"):
-                st.session_state["show_graph"] = False
-                st.rerun()
+            st.markdown("### Question Graph")
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("Hide Graph"):
+                    st.session_state["show_graph"] = False
+                    st.rerun()
+            with col_b:
+                if st.button("Reset Graph"):
+                    st.session_state["navigation_history"] = []
+                    st.rerun()
+
             render_question_graph(current_key)
         else:
-            st.markdown("### Question Flow")
+            st.markdown("### Question Graph")
             if st.button("Show Graph"):
                 st.session_state["show_graph"] = True
                 st.rerun()
@@ -693,7 +741,7 @@ def render_admin_page():
 
 def render_landing():
     st.title("Portal")
-    st.write("Choose mode:")
+    st.markdown('<p class="portal-choose">Choose mode:</p>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Guest"):
