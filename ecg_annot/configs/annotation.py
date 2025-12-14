@@ -93,12 +93,15 @@ T_GRAPH = {
 
 NOISE_ARTIFACTS_GRAPH = {
     "Noise artifacts": {
-        "question": "What kind of noise artifacts are present?",
+        "question": "Select any issues that are present in the ECG signal.",
         "choices": [
             "Missing lead",
-            "LVAD",
-            "Other noise",
+            "Noise",
+            "Artifacts",
+            "Other",
+            "None",
         ],
+        "multilabel": True,
     },
 }
 
@@ -107,13 +110,4 @@ ALL_QUESTIONS_GRAPH = {**QRS_GRAPH, **NOISE_ARTIFACTS_GRAPH, **T_GRAPH}
 QRS_QUESTION_ORDER = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
 NOISE_ARTIFACTS_QUESTION_ORDER = ["Noise artifacts"]
 T_QUESTION_ORDER = ["T"]
-ALL_QUESTION_ORDER = QRS_QUESTION_ORDER + NOISE_ARTIFACTS_QUESTION_ORDER + T_QUESTION_ORDER
-
-SECTIONS = [
-    ("QRS", QRS_GRAPH),
-    ("Noise Artifacts", NOISE_ARTIFACTS_GRAPH),
-    ("T", T_GRAPH),
-]
-
-if __name__ == "__main__":
-    print(SECTIONS)
+ALL_QUESTION_ORDER = NOISE_ARTIFACTS_QUESTION_ORDER + QRS_QUESTION_ORDER + T_QUESTION_ORDER

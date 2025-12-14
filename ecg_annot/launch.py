@@ -97,30 +97,49 @@ def save_all_responses(answers: dict, filename: str | None):
         ws.append_row([user_id, datetime.utcnow().isoformat(timespec="seconds"), data_str])
 
 
+def find_last_answered(question_list, answers):
+    for i in range(len(question_list) - 1, -1, -1):
+        if question_list[i] in answers:
+            return i
+    return -1
+
+
+def get_question_index(key):
+    if key in NOISE_ARTIFACTS_QUESTION_ORDER:
+        return NOISE_ARTIFACTS_QUESTION_ORDER.index(key)
+    if key in QRS_QUESTION_ORDER:
+        return len(NOISE_ARTIFACTS_QUESTION_ORDER) + QRS_QUESTION_ORDER.index(key)
+    if key in T_QUESTION_ORDER:
+        return len(NOISE_ARTIFACTS_QUESTION_ORDER) + len(QRS_QUESTION_ORDER) + T_QUESTION_ORDER.index(key)
+    return len(ALL_QUESTION_ORDER)
+
+
+def should_skip_ap(answers):
+    return answers.get("Preexcitation") == "No"
+
+
 def is_qrs_complete(answers):
     if answers.get("QRS") == "No (Asystole)":
         return True
-    preexc = answers.get("Preexcitation")
-    skip_ap = preexc == "No" and "AP" in QRS_QUESTION_ORDER
-    if preexc == "Yes" and "AP" in answers:
+    if answers.get("Preexcitation") == "Yes" and "AP" in answers:
         return True
+    skip_ap = should_skip_ap(answers)
     for key in QRS_QUESTION_ORDER:
         if skip_ap and key == "AP":
             continue
         if key not in answers:
             return False
     duration_answer = answers.get("Duration")
-    if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
-        return False
-    return True
+    return not (duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers)
 
 
 def get_next_question_key(current_index, answers):
+    for key in NOISE_ARTIFACTS_QUESTION_ORDER:
+        if key not in answers:
+            return key
     if not is_qrs_complete(answers):
-        preexc = answers.get("Preexcitation")
-        skip_ap = preexc == "No" and "AP" in QRS_QUESTION_ORDER
-        for i in range(current_index, len(QRS_QUESTION_ORDER)):
-            key = QRS_QUESTION_ORDER[i]
+        skip_ap = should_skip_ap(answers)
+        for key in QRS_QUESTION_ORDER:
             if skip_ap and key == "AP":
                 continue
             if key not in answers:
@@ -128,13 +147,9 @@ def get_next_question_key(current_index, answers):
         duration_answer = answers.get("Duration")
         if duration_answer in DURATION_FOLLOWUPS and duration_answer not in answers:
             return duration_answer
-    else:
-        for key in NOISE_ARTIFACTS_QUESTION_ORDER:
-            if key not in answers:
-                return key
-        for key in T_QUESTION_ORDER:
-            if key not in answers:
-                return key
+    for key in T_QUESTION_ORDER:
+        if key not in answers:
+            return key
     return None
 
 
@@ -323,14 +338,7 @@ def build_traversed_edges():
 
 
 def navigate_to_question(question_key):
-    if question_key in QRS_QUESTION_ORDER:
-        st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index(question_key)
-    elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
-        st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + NOISE_ARTIFACTS_QUESTION_ORDER.index(question_key)
-    elif question_key in T_QUESTION_ORDER:
-        st.session_state["current_question_index"] = (
-            len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER) + T_QUESTION_ORDER.index(question_key)
-        )
+    st.session_state["current_question_index"] = get_question_index(question_key)
     st.session_state["show_review"] = False
     st.rerun()
 
@@ -338,32 +346,23 @@ def navigate_to_question(question_key):
 def render_question_graph(current_question_key):
     import random
 
-    nodes = []
-    all_keys = QRS_QUESTION_ORDER + DURATION_FOLLOWUPS + NOISE_ARTIFACTS_QUESTION_ORDER + T_QUESTION_ORDER
-
     random.seed(42)
 
-    for i, key in enumerate(all_keys):
-        if key in ALL_QUESTIONS_GRAPH:
-            label = ALL_QUESTIONS_GRAPH[key]["question"][:30] + "..."
-
-            x_pos = random.randint(-500, 500)
-            y_pos = random.randint(-500, 500)
-
-            nodes.append(
-                Node(
-                    id=key,
-                    label=label,
-                    size=40,
-                    color=get_node_color(key, current_question_key),
-                    shape="box",
-                    x=x_pos,
-                    y=y_pos,
-                    font={"size": 18, "color": "#000000"},
-                )
-            )
-
-    edges = build_traversed_edges()
+    all_keys = NOISE_ARTIFACTS_QUESTION_ORDER + QRS_QUESTION_ORDER + DURATION_FOLLOWUPS + T_QUESTION_ORDER
+    nodes = [
+        Node(
+            id=key,
+            label=ALL_QUESTIONS_GRAPH[key]["question"][:30] + "...",
+            size=40,
+            color=get_node_color(key, current_question_key),
+            shape="box",
+            x=random.randint(-500, 500),
+            y=random.randint(-500, 500),
+            font={"size": 18, "color": "#000000"},
+        )
+        for key in all_keys
+        if key in ALL_QUESTIONS_GRAPH
+    ]
 
     config = Config(
         width="100%",
@@ -384,8 +383,7 @@ def render_question_graph(current_question_key):
         hierarchical=False,
     )
 
-    return_value = agraph(nodes=nodes, edges=edges, config=config)
-
+    return_value = agraph(nodes=nodes, edges=build_traversed_edges(), config=config)
     if return_value and return_value in all_keys:
         navigate_to_question(return_value)
         st.rerun()
@@ -405,36 +403,30 @@ def render_file_upload_page():
         return
     filename = uploaded_file.name
     file_bytes = uploaded_file.getvalue()
-    if filename and (filename.endswith(".xml") or filename.endswith(".npy")):
+
+    if filename.endswith((".xml", ".npy")):
         suffix = ".xml" if filename.endswith(".xml") else ".npy"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
             tmp_file.write(file_bytes)
             tmp_path = tmp_file.name
         try:
-            if filename.endswith(".xml"):
-                st.session_state["ecg_data"] = load_ecg_xml(tmp_path)
-            else:
-                st.session_state["ecg_data"] = load_ecg_np(tmp_path)
+            loader = load_ecg_xml if filename.endswith(".xml") else load_ecg_np
+            st.session_state["ecg_data"] = loader(tmp_path)
             st.session_state["file_type"] = "signal"
-            st.session_state["current_filename"] = filename
-            st.session_state["file_uploaded"] = True
         finally:
             os.unlink(tmp_path)
-        if st.button("Start Annotation", width="stretch"):
-            first_question = get_next_question_key(0, {})
-            if first_question:
-                update_navigation_history(first_question)
-            st.rerun()
-    elif filename and (filename.endswith(".png") or filename.endswith(".pdf")):
+    elif filename.endswith((".png", ".pdf")):
         st.session_state["visualization_data"] = file_bytes
         st.session_state["file_type"] = "visualization"
-        st.session_state["current_filename"] = filename
-        st.session_state["file_uploaded"] = True
-        if st.button("Start Annotation", width="stretch"):
-            first_question = get_next_question_key(0, {})
-            if first_question:
-                update_navigation_history(first_question)
-            st.rerun()
+
+    st.session_state["current_filename"] = filename
+    st.session_state["file_uploaded"] = True
+
+    if st.button("Start Annotation", width="stretch"):
+        first_question = get_next_question_key(0, {})
+        if first_question:
+            update_navigation_history(first_question)
+        st.rerun()
 
 
 def render_review_page():
@@ -460,16 +452,10 @@ def render_review_page():
                 st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
                 st.rerun()
                 return
-        last_answered_index = -1
-        for i in range(len(ALL_QUESTION_ORDER) - 1, -1, -1):
-            key = ALL_QUESTION_ORDER[i]
-            if key in answers:
-                last_answered_index = i
-                break
-        if last_answered_index >= 0:
-            last_key = ALL_QUESTION_ORDER[last_answered_index]
-            answers.pop(last_key, None)
-            st.session_state["current_question_index"] = last_answered_index
+        last_idx = find_last_answered(ALL_QUESTION_ORDER, answers)
+        if last_idx >= 0:
+            answers.pop(ALL_QUESTION_ORDER[last_idx], None)
+            st.session_state["current_question_index"] = last_idx
         else:
             st.session_state["current_question_index"] = 0
         st.rerun()
@@ -485,6 +471,14 @@ def render_review_page():
     render_button_pair("Back", "Submit", go_back, submit)
 
 
+def go_back_to_noise(answers):
+    last_idx = find_last_answered(NOISE_ARTIFACTS_QUESTION_ORDER, answers)
+    if last_idx >= 0:
+        answers.pop(NOISE_ARTIFACTS_QUESTION_ORDER[last_idx], None)
+        return last_idx
+    return 0
+
+
 def handle_back_navigation(question_key):
     answers = st.session_state["answers"]
     history = st.session_state["navigation_history"]
@@ -494,50 +488,27 @@ def handle_back_navigation(question_key):
 
     if question_key in DURATION_FOLLOWUPS:
         answers.pop("Duration", None)
-        st.session_state["current_question_index"] = QRS_QUESTION_ORDER.index("Duration")
+        st.session_state["current_question_index"] = len(NOISE_ARTIFACTS_QUESTION_ORDER) + QRS_QUESTION_ORDER.index("Duration")
     elif question_key in T_QUESTION_ORDER:
         answers.pop(question_key, None)
-        last_noise_index = -1
-        for i in range(len(NOISE_ARTIFACTS_QUESTION_ORDER) - 1, -1, -1):
-            key = NOISE_ARTIFACTS_QUESTION_ORDER[i]
-            if key in answers:
-                last_noise_index = i
-                break
-        if last_noise_index >= 0:
-            last_key = NOISE_ARTIFACTS_QUESTION_ORDER[last_noise_index]
-            answers.pop(last_key, None)
-            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + last_noise_index
+        last_qrs_idx = find_last_answered(QRS_QUESTION_ORDER, answers)
+        if last_qrs_idx >= 0:
+            answers.pop(QRS_QUESTION_ORDER[last_qrs_idx], None)
+            st.session_state["current_question_index"] = len(NOISE_ARTIFACTS_QUESTION_ORDER) + last_qrs_idx
         else:
-            last_qrs_index = -1
-            for i in range(len(QRS_QUESTION_ORDER) - 1, -1, -1):
-                key = QRS_QUESTION_ORDER[i]
-                if key in answers:
-                    last_qrs_index = i
-                    break
-            if last_qrs_index >= 0:
-                last_key = QRS_QUESTION_ORDER[last_qrs_index]
-                answers.pop(last_key, None)
-                st.session_state["current_question_index"] = last_qrs_index
-            else:
-                st.session_state["current_question_index"] = 0
-    elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
+            st.session_state["current_question_index"] = go_back_to_noise(answers)
+    elif question_key in QRS_QUESTION_ORDER:
         answers.pop(question_key, None)
-        last_qrs_index = -1
-        for i in range(len(QRS_QUESTION_ORDER) - 1, -1, -1):
-            key = QRS_QUESTION_ORDER[i]
-            if key in answers:
-                last_qrs_index = i
-                break
-        if last_qrs_index >= 0:
-            last_key = QRS_QUESTION_ORDER[last_qrs_index]
-            answers.pop(last_key, None)
-            st.session_state["current_question_index"] = last_qrs_index
+        qrs_idx = QRS_QUESTION_ORDER.index(question_key)
+        if qrs_idx > 0:
+            answers.pop(QRS_QUESTION_ORDER[qrs_idx - 1], None)
+            st.session_state["current_question_index"] = len(NOISE_ARTIFACTS_QUESTION_ORDER) + qrs_idx - 1
         else:
-            st.session_state["current_question_index"] = 0
+            st.session_state["current_question_index"] = go_back_to_noise(answers)
     else:
         new_index = st.session_state["current_question_index"] - 1
-        if 0 <= new_index < len(QRS_QUESTION_ORDER):
-            answers.pop(QRS_QUESTION_ORDER[new_index], None)
+        if 0 <= new_index < len(NOISE_ARTIFACTS_QUESTION_ORDER):
+            answers.pop(NOISE_ARTIFACTS_QUESTION_ORDER[new_index], None)
             st.session_state["current_question_index"] = new_index
 
     st.session_state["navigation_history"] = history
@@ -551,23 +522,12 @@ def handle_next_navigation(question_key, selected):
     if question_key == "Duration":
         for opt in DURATION_FOLLOWUPS:
             answers.pop(opt, None)
-    if question_key in QRS_QUESTION_ORDER:
-        idx = QRS_QUESTION_ORDER.index(question_key)
-        st.session_state["current_question_index"] = idx if question_key == "Duration" else idx + 1
-    elif question_key in NOISE_ARTIFACTS_QUESTION_ORDER:
-        idx = NOISE_ARTIFACTS_QUESTION_ORDER.index(question_key)
-        if idx + 1 < len(NOISE_ARTIFACTS_QUESTION_ORDER):
-            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + idx + 1
-        else:
-            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER)
-    elif question_key in T_QUESTION_ORDER:
-        idx = T_QUESTION_ORDER.index(question_key)
-        if idx + 1 < len(T_QUESTION_ORDER):
-            st.session_state["current_question_index"] = len(QRS_QUESTION_ORDER) + len(NOISE_ARTIFACTS_QUESTION_ORDER) + idx + 1
-        else:
-            st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
+
+    current_idx = get_question_index(question_key)
+    if question_key == "Duration":
+        st.session_state["current_question_index"] = current_idx
     else:
-        st.session_state["current_question_index"] = len(ALL_QUESTION_ORDER)
+        st.session_state["current_question_index"] = current_idx + 1
 
     next_key = get_next_question_key(st.session_state["current_question_index"], answers)
     if next_key:
@@ -612,8 +572,12 @@ def render_questions_page():
                     unsafe_allow_html=True,
                 )
                 prev_answer = st.session_state["answers"].get(question_key)
-                default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
-                selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
+                if question_data.get("multilabel"):
+                    default_val = prev_answer if isinstance(prev_answer, list) else []
+                    selected = st.multiselect("Your answer", question_data["choices"], default=default_val, key=f"answer_{question_key}")
+                else:
+                    default_index = question_data["choices"].index(prev_answer) if prev_answer in question_data["choices"] else 0
+                    selected = st.radio("Your answer", question_data["choices"], index=default_index, key=f"answer_{question_key}")
 
                 if st.session_state["current_question_index"] > 0:
                     render_button_pair(
