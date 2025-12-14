@@ -12,6 +12,8 @@ from ecg_annot.configs.annotation import (
     NOISE_ARTIFACTS_QUESTION_ORDER,
     T_QUESTION_ORDER,
     ALL_QUESTION_ORDER,
+    NOISE_LEAD_QUESTIONS,
+    NOISE_TO_LEAD_QUESTION,
 )
 from ecg_annot.data_utils.prepare_xml import load_ecg_signals_only as load_ecg_xml, PTB_ORDER
 from ecg_annot.data_utils.prepare_np import load_ecg_signals_only as load_ecg_np
@@ -134,9 +136,13 @@ def is_qrs_complete(answers):
 
 
 def get_next_question_key(current_index, answers):
-    for key in NOISE_ARTIFACTS_QUESTION_ORDER:
-        if key not in answers:
-            return key
+    if "Noise artifacts" not in answers:
+        return "Noise artifacts"
+    noise_answers = answers.get("Noise artifacts", [])
+    if noise_answers != ["None"]:
+        for noise_type, lead_key in NOISE_TO_LEAD_QUESTION.items():
+            if noise_type in noise_answers and lead_key not in answers:
+                return lead_key
     if not is_qrs_complete(answers):
         skip_ap = should_skip_ap(answers)
         for key in QRS_QUESTION_ORDER:
@@ -505,6 +511,21 @@ def handle_back_navigation(question_key):
             st.session_state["current_question_index"] = len(NOISE_ARTIFACTS_QUESTION_ORDER) + qrs_idx - 1
         else:
             st.session_state["current_question_index"] = go_back_to_noise(answers)
+    elif question_key in NOISE_LEAD_QUESTIONS:
+        answers.pop(question_key, None)
+        noise_answers = answers.get("Noise artifacts", [])
+        prev_lead_key = None
+        for noise_type, lead_key in NOISE_TO_LEAD_QUESTION.items():
+            if lead_key == question_key:
+                break
+            if noise_type in noise_answers:
+                prev_lead_key = lead_key
+        if prev_lead_key:
+            answers.pop(prev_lead_key, None)
+            st.session_state["current_question_index"] = NOISE_ARTIFACTS_QUESTION_ORDER.index(prev_lead_key)
+        else:
+            answers.pop("Noise artifacts", None)
+            st.session_state["current_question_index"] = 0
     else:
         new_index = st.session_state["current_question_index"] - 1
         if 0 <= new_index < len(NOISE_ARTIFACTS_QUESTION_ORDER):

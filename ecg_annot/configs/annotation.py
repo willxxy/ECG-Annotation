@@ -91,6 +91,8 @@ T_GRAPH = {
     },
 }
 
+LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
+
 NOISE_ARTIFACTS_GRAPH = {
     "Noise artifacts": {
         "question": "Select any issues that are present in the ECG signal.",
@@ -103,11 +105,40 @@ NOISE_ARTIFACTS_GRAPH = {
         ],
         "multilabel": True,
     },
+    "Missing lead leads": {
+        "question": "Which leads have missing data?",
+        "choices": LEADS,
+        "multilabel": True,
+    },
+    "Noise leads": {
+        "question": "Which leads are affected by noise?",
+        "choices": LEADS,
+        "multilabel": True,
+    },
+    "Artifacts leads": {
+        "question": "Which leads are affected by artifacts?",
+        "choices": LEADS,
+        "multilabel": True,
+    },
+    "Other leads": {
+        "question": "Which leads are affected by other issues?",
+        "choices": LEADS,
+        "multilabel": True,
+    },
+}
+
+NOISE_LEAD_QUESTIONS = ["Missing lead leads", "Noise leads", "Artifacts leads", "Other leads"]
+
+NOISE_TO_LEAD_QUESTION = {
+    "Missing lead": "Missing lead leads",
+    "Noise": "Noise leads",
+    "Artifacts": "Artifacts leads",
+    "Other": "Other leads",
 }
 
 ALL_QUESTIONS_GRAPH = {**QRS_GRAPH, **NOISE_ARTIFACTS_GRAPH, **T_GRAPH}
 
 QRS_QUESTION_ORDER = ["QRS", "Pacing", "Axis", "Lead reversal", "Rate", "Amplitude", "Preexcitation", "AP", "Duration"]
-NOISE_ARTIFACTS_QUESTION_ORDER = ["Noise artifacts"]
+NOISE_ARTIFACTS_QUESTION_ORDER = ["Noise artifacts"] + NOISE_LEAD_QUESTIONS
 T_QUESTION_ORDER = ["T"]
 ALL_QUESTION_ORDER = NOISE_ARTIFACTS_QUESTION_ORDER + QRS_QUESTION_ORDER + T_QUESTION_ORDER
